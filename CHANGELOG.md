@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.1.4 — Unreleased (2026-10-08)
+## 0.1.5 — Development (2026-10-09)
+
+- P1-A: scalar text bounding boxes with deterministic randomized equivalence checks.
+- P1-B: retain safe page-level classification; cross-document raster-first heuristic deferred pending representative A/B evidence.
+- P1-C: exclude only high-confidence pure-text page numbers from fit bounds, preserving full original PDF bounds, scanned/illustrated content and annotations.
+- P2-A: dirty-page persistence, batched writes and serialized multi-reader cache merging.
+- P2-B: trailing scroll-event geometry debounce.
+- Current developer candidate is NOT published; Zotero GUI integration is pending due isolated test debugger/headless startup failures.
+
+## 0.1.4 — 2026-10-08
 
 - Strict pure-text fast path: inspect PDF.js operator lists and bypass secondary offscreen rasterization only on confidently text-only pages. Pages with images, vector paths, unsupported operations or ambiguous bounds keep the existing conservative raster detector.
 - Persist validated absolute content boundaries as compact per-PDF JSON under the Zotero profile, keyed by PDF fingerprints, page count, file size/modified timestamp when accessible, and detection algorithm version.

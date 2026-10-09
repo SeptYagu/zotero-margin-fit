@@ -90,7 +90,8 @@ var MarginFitCore = (() => {
   // Identify a folio candidate during the existing text-bbox traversal.
   // Pure-text mode only: a number at the edge is not sufficient on its own.
   function textAndFolio(content, viewport) {
-    let body = null, candidate = null, candidates = 0;
+    let bodyLeft=Infinity,bodyTop=Infinity,bodyRight=-Infinity,bodyBottom=-Infinity;
+    let candidate = null, candidates = 0;
     const all = textBox(content, viewport, (item,l,t,r,b) => {
       const text = item.str.trim();
       const h = viewport.height, w = viewport.width;
@@ -114,10 +115,14 @@ var MarginFitCore = (() => {
         candidates++;
         if (candidates === 1) candidate = {box:[l,t,r,b],ordinal,edge:upper?'top':'bottom'};
       } else {
-        body=union(body,[l,t,r,b]);
+        if(l<bodyLeft)bodyLeft=l;
+        if(t<bodyTop)bodyTop=t;
+        if(r>bodyRight)bodyRight=r;
+        if(b>bodyBottom)bodyBottom=b;
       }
     });
-    if (!all || !body || candidates !== 1 || !candidate) return {all,folio:null};
+    if (!all || bodyLeft===Infinity || candidates !== 1 || !candidate) return {all,folio:null};
+    const body=[bodyLeft,bodyTop,bodyRight,bodyBottom];
     const b = candidate.box;
     const gap = candidate.edge === 'top' ? body[1]-b[3] : b[1]-body[3];
     // A freestanding number requires whitespace from every other text glyph.

@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "MarginFit",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Fit PDF content width or height with automatic margin detection and stable zoom. 自动识别 PDF 白边，适合内容宽度或高度，保持阅读位置稳定。",
   "author": "SeptYagu",
   "homepage_url": "https://github.com/SeptYagu/zotero-margin-fit",

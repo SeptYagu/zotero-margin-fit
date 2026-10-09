@@ -3,7 +3,7 @@
 var MarginFitCore = (() => {
   const VERSION = 3; // P1-C: versioned page-number candidate metadata; 0.1.4 caches invalidate.
   // PDF.js scale=1 viewport units (1/72 inch), applied only at display time.
-  const SAFETY = 8;
+  const SAFETY = 16;
   const IDLE_MS = 500;
   const DEAD_ZONE = 0.05;
   const MAX_SCALE = 5;
@@ -154,8 +154,9 @@ var MarginFitCore = (() => {
       f.edge!==pattern.edge || f.ordinal-p!==pattern.offset ||
       Math.abs((f.box[1]+f.box[3])/(2*record.height)-pattern.relativeY)>.035)
       return record;
-    // Original raw remains full-content bounds; only the fitting calculation changes.
-    return {...record,raw:f.body,fullRaw:record.raw,folioExcluded:true};
+    // Keep the printed folio in Height Fit; only Width Fit excludes it.
+    return {...record,widthFitRaw:[f.body[0],record.raw[1],f.body[2],record.raw[3]],
+      folioExcluded:true};
   }
   // Deny by default: a single graphic/image/shading/unknown operation requires raster analysis.
   const TEXT_OPS = new Set(["dependency","save","restore","transform","beginText","endText",
@@ -239,8 +240,55 @@ var MarginFitCore = (() => {
       quality:"estimated",visited,hits,stride,phasePeriod,
       leftByRow,rightByRow,inkByRow};
   }
+  // Conservative body-width estimator. The sampled outermost points are not
+  // silently discarded: protrusions must live exclusively in the small page
+  // header/footer, and the central body must have distributed two-dimensional
+  // support. The full raw bounds always remain available for Height Fit.
+  function sparseBodyWidth(ink, width, height) {
+    if(!ink || ink.quality!=="estimated" || !ink.box ||
+      !ink.inkByRow || !ink.leftByRow || !ink.rightByRow)
+      return {box:null,confidence:0,reason:"unreliable-raster"};
+    const y0=Math.floor(height*.11),y1=Math.ceil(height*.88);
+    let l=width,r=-1,first=height,last=-1,rows=0;
+    for(let y=y0;y<y1;y++) {
+      // A credible body line has multiple independent sampled positions.
+      if(ink.inkByRow[y]<3)continue;
+      rows++;first=Math.min(first,y);last=Math.max(last,y);
+      l=Math.min(l,ink.leftByRow[y]);r=Math.max(r,ink.rightByRow[y]);
+    }
+    if(rows<12 || last-first < height*.25 || r-l < width*.22)
+      return {box:null,confidence:0,reason:"insufficient-body-support"};
+    const full=ink.box;
+    const edgeGap=Math.max(12, width*.035);
+    const leftOut=full[0]<l-edgeGap,rightOut=full[2]>r+edgeGap;
+    if(!leftOut&&!rightOut)return {box:null,confidence:0,reason:"no-protrusion"};
+    // Reject if a substantial independent graphic/footer is outlying:
+    // a legitimate wide figure may be narrow vertically but wide horizontally.
+    const maxOutRows=Math.max(15,Math.ceil(height*.055));
+    let outRowsL=0,outRowsR=0;
+    for(let y=0;y<height;y++) {
+      const count=ink.inkByRow[y];
+      if(!count)continue;
+      const outsideLeft=leftOut && ink.leftByRow[y] < l-edgeGap;
+      const outsideRight=rightOut && ink.rightByRow[y]>r+edgeGap;
+      if(!outsideLeft&&!outsideRight)continue;
+      if((y>=y0 && y<y1) || (ink.rightByRow[y]-ink.leftByRow[y]>width*.54))
+        return {box:null,confidence:0,reason:"outlying-important-content"};
+      if(outsideLeft)outRowsL++;
+      if(outsideRight)outRowsR++;
+    }
+    if(outRowsL>maxOutRows || outRowsR>maxOutRows)
+      return {box:null,confidence:0,reason:"protrusion-too-large"};
+    const body=[leftOut?l:full[0],full[1],rightOut?r+1:full[2],full[3]];
+    if(body[2]<=body[0])return {box:null,confidence:0,reason:"invalid-body"};
+    return {box:body,confidence:0.85,reason:"isolated-marginal-protrusion",
+      excludedLeft:leftOut,excludedRight:rightOut,bodyRows:rows,
+      outlierRows:outRowsL+outRowsR};
+  }
   function scaleDecision(record, mode, viewport, actual, anchor, explicit = false) {
-    const safe = safeBox(record.raw, record.width, record.height);
+    const fitRaw = mode === "width" && Array.isArray(record.widthFitRaw)
+      ? record.widthFitRaw : record.raw;
+    const safe = safeBox(fitRaw, record.width, record.height);
     const available = mode === "height" ? viewport.height : viewport.width;
     const dimension = mode === "height" ? safe[3] - safe[1] : safe[2] - safe[0];
     const target = Math.min(MAX_SCALE, Math.max(0.1, available / Math.max(1, dimension)));
@@ -360,6 +408,6 @@ var MarginFitCore = (() => {
   }
   return { VERSION, SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,
     parityModels, prediction, multiply, textBox, textAndFolio, folioPattern, fitPageRecord,
-    isTextOnlyOps, inkBox, sparseInkBox, scaleDecision, primaryPage, hook, Session };
+    isTextOnlyOps, inkBox, sparseInkBox, sparseBodyWidth, scaleDecision, primaryPage, hook, Session };
 })();
 if (typeof module !== "undefined") module.exports = MarginFitCore;

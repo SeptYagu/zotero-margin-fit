@@ -19,15 +19,15 @@ test('L1 conservative parity unions retain alternating asymmetric binding margin
 });
 test('fixed safety is applied once to a copy and clamped at physical page edges',()=>{
   const raw=[3,40,198,180];
-  assert.deepEqual(C.safeBox(raw,200,220),[0,32,200,188]);
+  assert.deepEqual(C.safeBox(raw,200,220),[0,24,200,196]);
   assert.deepEqual(raw,[3,40,198,180]);
 });
 test('L3 compares cumulative ideal changes to the last actually applied anchor',()=>{
   let actual=1,anchor=1;
   const outputs=[];
   for(const target of [1,1.04,1.08,1.12]) {
-    const r=record([0,0,84,200]); // safe width=92
-    const decision=C.scaleDecision(r,'width',{width:92*target,height:220},actual,anchor);
+    const r=record([0,0,84,200]); // 16-unit safety yields width 100
+    const decision=C.scaleDecision(r,'width',{width:100*target,height:220},actual,anchor);
     if(decision.change) anchor=actual=decision.scale;
     outputs.push(actual);
   }
@@ -35,10 +35,10 @@ test('L3 compares cumulative ideal changes to the last actually applied anchor',
 });
 test('dead zone yields to safety, explicit commands, and height axis',()=>{
   const r=record();
-  const vp={width:116,height:156};
+  const vp={width:132,height:172};
   assert.equal(C.scaleDecision(r,'width',vp,1.02,1.02).scale,1);
   assert.equal(C.scaleDecision(r,'width',{width:120,height:156},1,1,true).change,true);
-  assert.equal(C.scaleDecision(r,'height',{width:40,height:312},1,1).scale,2);
+  assert.equal(C.scaleDecision(r,'height',{width:40,height:344},1,1).scale,2);
 });
 test('primary page chooses visible area and keeps the previous page on a close tie',()=>{
   assert.equal(C.primaryPage([{id:2,area:100},{id:3,area:98}],3,1),3);

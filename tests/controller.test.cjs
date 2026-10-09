@@ -41,7 +41,7 @@ test('original native width/height pass through when disabled; stats and methods
 test('native PDF.js units fit the real 96/72 CSS conversion and asymmetric offset',async()=>{
   const f=setup();f.enable();
   await f.controller.apply(f.record,1,0,true);
-  assert.ok(Math.abs(f.viewer.currentScale-(624/(316*4/3)))<1e-6);
+  assert.ok(Math.abs(f.viewer.currentScale-(624/(332*4/3)))<1e-6);
   assert.ok(f.viewer.container.scrollLeft>0);
   assert.equal(f.controller.metrics.writes.length,2);f.controller.close();
 });
@@ -75,7 +75,7 @@ test('initial width fitting retains a restored PDF coordinate instead of alignin
 });
 test('idle width fitting does not assign scrollTop when scale stays unchanged, including page margins',async()=>{
   const f=setup();f.enable();f.advance(500);
-  f.viewer.currentScaleValue=624/(316*4/3);f.controller.anchor=f.viewer.currentScale;
+  f.viewer.currentScaleValue=624/(332*4/3);f.controller.anchor=f.viewer.currentScale;
   let top=25,writes=0;
   Object.defineProperty(f.viewer.container,'scrollTop',{get:()=>top,set(v){top=v;writes++;}});
   await f.controller.apply(f.record,1,0);
@@ -92,7 +92,7 @@ test('necessary idle zoom preserves the reading coordinate without clamping it t
 });
 test('idle height fitting retains vertical position instead of centering the page again',async()=>{
   const f=setup();f.enable();f.advance(500);f.controller.mode='height';
-  f.viewer.currentScaleValue=784/(516*4/3);f.controller.anchor=f.viewer.currentScale;
+  f.viewer.currentScaleValue=784/(532*4/3);f.controller.anchor=f.viewer.currentScale;
   f.viewer.container.scrollTop=45;
   await f.controller.apply(f.record,1,0);
   assert.equal(f.viewer.container.scrollTop,45);f.controller.close();

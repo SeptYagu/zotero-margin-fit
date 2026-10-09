@@ -29,8 +29,11 @@ test('true page-number sequence across L1 identifies only matching folios',()=>{
  assert.equal(pattern.offset,0);assert.equal(pattern.edge,'bottom');
  const full=record(8),short=C.fitPageRecord(full,pattern,8);
  assert.equal(short.folioExcluded,true);
- assert.deepEqual(short.fullRaw,full.raw);
- assert.ok(short.raw[3]<full.raw[3]);
+ assert.deepEqual(short.raw,full.raw);
+ assert.equal(short.widthFitRaw[1],full.raw[1]);
+ assert.equal(short.widthFitRaw[3],full.raw[3]);
+ assert.deepEqual([short.widthFitRaw[0],short.widthFitRaw[2]],
+   [full.folio.body[0],full.folio.body[2]]);
  assert.deepEqual(C.fitPageRecord(record(8,true),pattern,8).raw,record(8,true).raw);
 });
 test('unchanging footer year and live footnote must not become folios',()=>{

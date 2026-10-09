@@ -50,3 +50,38 @@ test("stride=3 and odd width keep requested sampling density",()=>{
   assert.ok(s.visited/(101*105)>.32&&s.visited/(101*105)<.35);
 });
 module.exports={image};
+
+test("left footer folio is excluded from width but chapter footer remains in height",()=>{
+  const im=image();
+  for(let y=104;y<654;y+=15)im.rect(128,y,340,7);
+  im.rect(37,751,14,13);    // independent p.76
+  im.rect(235,752,95,13);   // Chapter 4 stays vertically visible
+  const samples=C.sparseInkBox(im);
+  const result=C.sparseBodyWidth(samples,im.width,im.height);
+  assert.equal(result.reason,"isolated-marginal-protrusion");
+  assert.ok(result.box[0]>120&&result.box[0]<150);
+  assert.equal(result.box[3],samples.box[3]);
+  assert.ok(result.confidence>=.8);
+});
+test("right footer folio is independently rejected from Width Fit",()=>{
+  const im=image();
+  for(let y=105;y<652;y+=15)im.rect(108,y,315,7);
+  im.rect(540,754,17,11);
+  const s=C.sparseInkBox(im);
+  const b=C.sparseBodyWidth(s,600,800);
+  assert.equal(b.excludedRight,true);
+  assert.ok(b.box[2]<450);
+});
+test("wide chart near footer is not rejected as tiny folio",()=>{
+  const im=image();
+  for(let y=110;y<650;y+=15)im.rect(120,y,315,7);
+  im.rect(30,747,530,35);
+  const b=C.sparseBodyWidth(C.sparseInkBox(im),600,800);
+  assert.equal(b.box,null);
+});
+test("height and width fit read separate bounds and padding is 16 once",()=>{
+  const r={raw:[30,70,540,770],widthFitRaw:[120,70,445,770],width:600,height:800};
+  assert.equal(C.SAFETY,16);
+  assert.deepEqual(C.scaleDecision(r,"width",{width:357,height:900},1,1,true).safe,[104,54,461,786]);
+  assert.deepEqual(C.scaleDecision(r,"height",{width:900,height:732},1,1,true).safe,[14,54,556,786]);
+});

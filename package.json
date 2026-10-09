@@ -1,0 +1,14 @@
+{
+  "name": "zotero-margin-fit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Smart content fitting for the Zotero PDF reader",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/core.test.cjs tests/controller.test.cjs",
+    "build": "node scripts/build.cjs",
+    "fixtures": "node tests/make-fixtures.cjs",
+    "test:integration": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1"
+  },
+  "engines": { "node": ">=20" }
+}

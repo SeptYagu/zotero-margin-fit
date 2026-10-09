@@ -1,0 +1,109 @@
+{
+  "version": "10.0.6",
+  "checks": [
+    "XPI installs on Zotero 10.0.6",
+    "Exactly two new controls; native Reset Zoom retained",
+    "Original Reset Zoom exists",
+    "React enables native Reset Zoom through instance stats callback",
+    "L1 six samples run first without inserting restored current page",
+    "First fit targets restored page 8",
+    "Independent left/right detection handles alternating binding margins",
+    "Four-edge detector includes body and isolated page number",
+    "L1 and L2 share a single analysis worker",
+    "Native toolbar invokes smart width through PDFView",
+    "Added height direction uses detected content height",
+    "Height fitting uses native PDF.js CSS units",
+    "Disabled native width restores page-width",
+    "Disabled callback restores native Reset Zoom disabled state",
+    "Disabled native height restores page-fit",
+    "Continuous scroll 0 causes no plugin zoom/position writes",
+    "Continuous scroll 1 causes no plugin zoom/position writes",
+    "Continuous scroll 2 causes no plugin zoom/position writes",
+    "Continuous scroll 3 causes no plugin zoom/position writes",
+    "Continuous scroll 4 causes no plugin zoom/position writes",
+    "Continuous scroll 5 causes no plugin zoom/position writes",
+    "Continuous scroll 6 causes no plugin zoom/position writes",
+    "Continuous scroll 7 causes no plugin zoom/position writes",
+    "Continuous scroll 8 causes no plugin zoom/position writes",
+    "Continuous scroll 9 causes no plugin zoom/position writes",
+    "Plugin own scroll events do not create a fitting loop",
+    "Frozen scrolling crosses ten alternating odd/even pages",
+    "Width/height changes reuse exact boundary cache",
+    "Ctrl+0 follows native smart-width route and completes positioning",
+    "Main View menu width/height commands use smart fitting",
+    "Native PDF text remains available after fitting",
+    "Native text-layer selection works after fitting",
+    "Fitting preserves saved highlight PDF coordinates",
+    "Manual reader rotation invalidates and remeasures page bounds",
+    "Split pane has an independent zoom anchor and direction",
+    "Removing split pane cancels its tasks and restores hooks",
+    "Detached reader window has smart View menu and toolbar",
+    "Closing detached reader keeps original PDF view usable",
+    "Reading and fitting leave PDF bytes unchanged",
+    "Clean scanned page preserves thin isolated page number",
+    "Height fit keeps wide content horizontally scrollable",
+    "Rotated page uses rotated viewport coordinates",
+    "blank.pdf safely falls back",
+    "dark-background.pdf safely falls back",
+    "Public arXiv paper with text, formulas and figures detects reliably",
+    "Disable removes toolbar controls and style",
+    "Disable restores original methods and stats callback",
+    "Native width works after disable",
+    "Re-enable does not duplicate controls",
+    "Uninstall removes diagnostic reference"
+  ],
+  "measurements": {
+    "firstSmartFitFromImportMs": 5112,
+    "l1DetectionMs": 1104,
+    "sampleBounds": {
+      "odd": [
+        149,
+        140,
+        451,
+        651.656
+      ],
+      "even": [
+        59,
+        140,
+        361,
+        651.656
+      ]
+    },
+    "detectorMs": [
+      236,
+      144,
+      302,
+      153,
+      133,
+      135,
+      151
+    ],
+    "temporaryRasterBytes": 1920000,
+    "twoCachedFitCommandsMs": 186,
+    "keyboard": {
+      "key": "0",
+      "code": "Digit0",
+      "ctrlKey": true
+    },
+    "scanBounds": [
+      94,
+      119,
+      409,
+      679
+    ],
+    "publicPaper": {
+      "source": "https://arxiv.org/pdf/1706.03762",
+      "pages": 15,
+      "raw": [
+        17,
+        72,
+        506,
+        743
+      ],
+      "elapsedMs": 193
+    },
+    "processTreePeakPrivateBytesSampled": 2123390976,
+    "nominalMemorySamplingIntervalMs": 500
+  },
+  "passed": true
+}

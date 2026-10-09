@@ -26,6 +26,8 @@ var MarginFitRuntime = (() => {
       this.epoch = 0; this.lastInput = host.now(); this.lastPage = this.viewer.currentPageNumber;
       this.closed = false; this.muted = false; this.manual = false;
       this.appliedEpoch = -1; this.restores = []; this.listeners = [];
+      this.prefetchedEpoch = -1; this.refiningEpoch = null;
+      this.session.setEnabled(host.enabled());
       this.metrics = { writes: [], fallback: 0 };
       const width = view.zoomPageWidth, height = view.zoomPageHeight, stats = view._onChangeViewStats;
       this.restores.push(C.hook(view, "zoomPageWidth", () => {
@@ -116,7 +118,8 @@ var MarginFitRuntime = (() => {
       if (this.closed || !this.host.enabled()) return;
       const token = this.epoch;
       try {
-        await this.session.l1();
+        const modelsReady = await this.session.l1();
+        if (!modelsReady) { this.arm(); return; }
         if (!this.closed && this.host.enabled() && token === this.epoch && !this.dragging && !this.manual) {
           const p = this.page();
           const vp = unwrap(this.viewer.getPageView(p-1).viewport.clone(into(this.win,{ scale: 1 })));
@@ -133,7 +136,10 @@ var MarginFitRuntime = (() => {
     }
     async refine() {
       const token = this.epoch, p = this.page();
-      if (!this.stable(token, p) || this.appliedEpoch === token) { if (this.dragging) this.arm(); return; }
+      if (!this.stable(token, p) || this.prefetchedEpoch === token || this.refiningEpoch === token) {
+        if (this.dragging) this.arm(); return;
+      }
+      this.refiningEpoch = token;
       this.lastPage = p;
       const rotation = this.viewer.getPageView(p-1).viewport.rotation;
       try {
@@ -143,7 +149,9 @@ var MarginFitRuntime = (() => {
           if (record.quality !== "reliable") { this.fallback(record.reason); return; }
           await this.apply(record, p, token);
         });
+        if (this.stable(token,p)) this.prefetchedEpoch = token;
       } catch (error) { this.failure(error); }
+      finally { if (this.refiningEpoch === token) this.refiningEpoch = null; }
     }
     async request(mode) {
       this.mode = mode; this.host.setMode(mode);
@@ -151,15 +159,16 @@ var MarginFitRuntime = (() => {
       this.anchor = this.viewer.currentScale;
       const token = this.epoch, p = this.page();
       try {
-        await this.session.l1();
+        if (!await this.session.l1()) { this.arm(); return; }
         const rotation = this.viewer.getPageView(p-1).viewport.rotation;
         const record = await this.session.serial(() => {
           if (this.closed || !this.host.enabled() || token !== this.epoch) return null;
           return this.session.read(p, rotation);
         });
         if (!record || this.closed || token !== this.epoch || !this.host.enabled()) return;
-        if (record.quality !== "reliable") { this.fallback(record.reason); return; }
-        await this.apply(record, p, token, true);
+        if (record.quality !== "reliable") this.fallback(record.reason);
+        else await this.apply(record, p, token, true);
+        if (this.closed || token !== this.epoch || !this.host.enabled()) return;
         this.appliedEpoch = token;
         this.arm();
       } catch (error) { this.failure(error); }
@@ -176,8 +185,9 @@ var MarginFitRuntime = (() => {
       const valid = () => !this.closed && this.host.enabled() && token === this.epoch &&
         alive(this.app) && alive(this.container) &&
         this.document === this.app.pdfDocument &&
-        (explicit || initial || this.stable(token,p));
-      if (!valid()) return;
+        (explicit || (!this.dragging && !this.manual &&
+          (initial || this.host.now()-this.lastInput >= C.IDLE_MS)));
+      if (!valid() || (!explicit && !initial && !this.stable(token,p))) return;
       // PDF.js currentScale excludes its 96/72 CSS conversion; viewport.scale includes it.
       const unitScale = this.viewer.getPageView(p-1).viewport.scale / this.viewer.currentScale;
       const decision = C.scaleDecision(record, this.mode,
@@ -186,14 +196,18 @@ var MarginFitRuntime = (() => {
       const currentPage = this.viewer.getPageView(p-1);
       const before = currentPage.div.getBoundingClientRect();
       const root = this.container.getBoundingClientRect();
-      // Preserve the PDF coordinate currently under the viewport's vertical center on auto refinement.
+      // A center in the page gap belongs to neither page: analyze/cache, but do not snap the view.
       const centerY = (root.top+root.bottom)/2;
+      if (!explicit && (centerY < before.top || centerY > before.bottom)) return;
+      // Preserve the restored/current PDF coordinate, including blank page margins.
       const anchorY = (centerY-before.top) / (this.viewer.currentScale*unitScale);
+      let scaled = false;
       this.muted = true;
       try {
         if (decision.change && Math.abs(decision.scale-this.viewer.currentScale)>1e-6) {
           this.viewer.currentScaleValue = decision.scale;
           this.anchor = this.viewer.currentScale;
+          scaled = true;
           this.metrics.writes.push({ type: "scale", page: p, value: this.anchor, explicit, time: this.host.now() });
         }
         // Native zoom synchronously updates page viewports; allow layout one frame to catch up.
@@ -206,20 +220,19 @@ var MarginFitRuntime = (() => {
         const left = this.container.scrollLeft + r.left-root.left;
         const top = this.container.scrollTop + r.top-root.top;
         const x = left + (box[0]+box[2])*scale/2 - this.container.clientWidth/2;
-        let y;
-        if (this.mode === "height") y = top + (box[1]+box[3])*scale/2 - this.container.clientHeight/2;
-        else if (explicit || initial) y = top + box[1]*scale - 8;
-        else {
-          const focus = C.safeBox(record.raw,record.width,record.height);
-          y = top + C.clamp(anchorY,focus[1],focus[3])*scale - this.container.clientHeight/2;
-          // Retain mid-page reading position, but align first/last content at the page's limits.
-          y = C.clamp(y, top+box[1]*scale-8, Math.max(top+box[1]*scale-8,top+box[3]*scale-this.container.clientHeight+8));
-        }
         this.container.scrollLeft = Math.max(0,x);
-        this.container.scrollTop = Math.max(0,y);
+        // At unchanged scale leave scrollTop completely untouched (including subpixel rounding).
+        // Only an explicit fit aligns content; automatic zoom compensates to retain the reading anchor.
+        if (explicit || scaled) {
+          const y = explicit ? (this.mode === "height"
+            ? top + (box[1]+box[3])*scale/2 - this.container.clientHeight/2
+            : top + box[1]*scale - 8)
+            : top + anchorY*scale - (centerY-root.top);
+          this.container.scrollTop = Math.max(0,y);
+        }
         this.lastPage = p;
         this.metrics.writes.push({ type: "position", page: p, x: this.container.scrollLeft,
-          y: this.container.scrollTop, explicit, time: this.host.now() });
+          y: this.container.scrollTop, verticalWritten: explicit || scaled, explicit, time: this.host.now() });
         this.host.status(this.view, null);
         // Scroll events from our own writes arrive in the next animation frame.
         await new Promise(resolve => this.host.setTimeout(resolve, 50));
@@ -227,7 +240,8 @@ var MarginFitRuntime = (() => {
     }
     toggle() {
       if (this.closed) return;
-      this.epoch++; this.cancelTimer(); this.manual = false;
+      this.epoch++; this.cancelTimer(); this.manual = false; this.muted = false;
+      this.session.setEnabled(this.host.enabled());
       this.anchor = this.viewer.currentScale;
       this.view._updateViewStats();
       if (this.host.enabled()) this.begin();
@@ -366,14 +380,15 @@ var MarginFitRuntime = (() => {
       const bar = doc.createElement("span");
       bar.className = "marginfit-toolbar";
       const style = doc.createElement("style");
-      style.textContent = `.marginfit-toolbar {display:inline-flex;align-items:center;gap:2px;margin-inline:4px}
-        .marginfit-toolbar button {font:inherit;color:inherit;border:0;background:transparent;cursor:pointer;min-width:28px;height:28px;border-radius:4px;padding:4px}
+      style.textContent = `.marginfit-toolbar {display:inline-flex;align-items:center;gap:2px;margin-inline:4px;-moz-window-dragging:no-drag}
+        .marginfit-toolbar button {font:inherit;color:inherit;border:0;background:transparent;cursor:pointer;min-width:28px;height:28px;border-radius:4px;padding:4px;-moz-window-dragging:no-drag}
         .marginfit-toolbar button:hover {background:color-mix(in srgb,currentColor 12%,transparent)}
         .marginfit-toolbar button[aria-pressed=true] {background:color-mix(in srgb,Highlight 22%,transparent)}
         .marginfit-toolbar button:focus-visible {outline:2px solid Highlight;outline-offset:1px}
-        .marginfit-toolbar svg {display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5}`;
+        .marginfit-toolbar svg {display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;pointer-events:none}`;
       const button = (name,path) => {
         const el = doc.createElement("button"); el.type = "button"; el.dataset.marginfit = name;
+        el.className = "toolbar-button";
         const svg = doc.createElementNS("http://www.w3.org/2000/svg","svg");
         svg.setAttribute("viewBox","0 0 24 24"); svg.setAttribute("aria-hidden","true");
         const line = doc.createElementNS(svg.namespaceURI,"path"); line.setAttribute("d",path);
@@ -416,7 +431,8 @@ var MarginFitRuntime = (() => {
         try {
         if (![reader._internalReader?._primaryView,reader._internalReader?._secondaryView].includes(view)) continue;
         const toggle = bar.querySelector('[data-marginfit="detect"]');
-        toggle.title = reason ? this.strings().fallback : `${this.strings().detect} / Detect Margins`;
+        const t = this.strings();
+        toggle.title = `${t.detect} / Detect Margins: ${this.enabled() ? t.on : t.off}${reason ? ` — ${t.fallback}` : ""}`;
         toggle.dataset.status = reason ? "fallback" : "ready";
         } catch (_) { /* closed iframe */ }
       }

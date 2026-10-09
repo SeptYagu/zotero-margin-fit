@@ -136,6 +136,7 @@ var MarginFitCore = (() => {
       this.l1Promise = null;
       this.tail = Promise.resolve();
       this.closed = false;
+      this.paused = false;
       this.metrics = { analyzed: [], cacheHits: 0, active: 0, peakConcurrent: 0 };
     }
     serial(job) {
@@ -143,12 +144,14 @@ var MarginFitCore = (() => {
       this.tail = task.catch(() => {});
       return task;
     }
+    setEnabled(enabled) { this.paused = !enabled; }
     async read(p, rotation) {
       const prior = this.cache.get(p);
       if (prior && (rotation === undefined || prior.rotation === rotation)) {
         this.metrics.cacheHits++;
         return prior;
       }
+      if (this.closed || this.paused) return null;
       this.metrics.active++;
       this.metrics.peakConcurrent = Math.max(this.metrics.peakConcurrent, this.metrics.active);
       try {
@@ -161,31 +164,36 @@ var MarginFitCore = (() => {
       } finally { this.metrics.active--; }
     }
     l1() {
+      if (this.closed || this.paused) return Promise.resolve(null);
       if (!this.l1Promise) this.l1Promise = this.serial(async () => {
         const started = Date.now();
         const pages = samples(this.count);
         for (const p of pages) {
-          if (this.closed) return null;
+          if (this.closed || this.paused) return null;
           await this.read(p);
         }
-        if (!this.closed) {
+        if (!this.closed && !this.paused) {
           this.models = parityModels(this.cache, pages);
           const rotations = new Set(pages.map(p => this.cache.get(p)?.viewerRotation ?? 0));
           this.modelRotation = rotations.size === 1 ? [...rotations][0] : null;
           this.metrics.l1ElapsedMs = Date.now() - started;
         }
-        return this.models;
-      }).catch(error => { this.l1Promise = null; throw error; });
+        return this.closed || this.paused ? null : this.models;
+      }).then(models => {
+        // Keep completed samples when paused; a later ON resumes the incomplete model.
+        if (!models) this.l1Promise = null;
+        return models;
+      }, error => { this.l1Promise = null; throw error; });
       return this.l1Promise;
     }
     async local(p, rotation, valid, onCurrent) {
-      await this.l1();
+      if (!await this.l1()) return;
       for (const n of neighbors(p, this.count)) {
-        if (this.closed || !valid()) break;
+        if (this.closed || this.paused || !valid()) break;
         await this.serial(async () => {
-          if (this.closed || !valid()) return;
+          if (this.closed || this.paused || !valid()) return;
           const value = await this.read(n, rotation);
-          if (n === p && !this.closed && valid()) await onCurrent(value);
+          if (value && n === p && !this.closed && !this.paused && valid()) await onCurrent(value);
         });
       }
     }

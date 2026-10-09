@@ -3,19 +3,30 @@
   "checks": [
     "XPI installs on Zotero 10.0.6",
     "Exactly two new controls; native Reset Zoom retained",
+    "height button opts out of native toolbar window dragging",
+    "height button is reachable at its visible mouse target",
+    "detect button opts out of native toolbar window dragging",
+    "detect button is reachable at its visible mouse target",
     "Original Reset Zoom exists",
     "React enables native Reset Zoom through instance stats callback",
     "L1 six samples run first without inserting restored current page",
     "First fit targets restored page 8",
+    "Initial prediction and precise refinement retain the restored mid-page reading coordinate",
     "Independent left/right detection handles alternating binding margins",
     "Four-edge detector includes body and isolated page number",
     "L1 and L2 share a single analysis worker",
     "Native toolbar invokes smart width through PDFView",
-    "Added height direction uses detected content height",
+    "Added height button click uses detected content height",
     "Height fitting uses native PDF.js CSS units",
+    "Detect button click switches OFF and updates its visible pressed state",
     "Disabled native width restores page-width",
     "Disabled callback restores native Reset Zoom disabled state",
     "Disabled native height restores page-fit",
+    "Detect button click switches ON and updates its visible pressed state",
+    "Explicit fit is followed by idle neighbor prefetch",
+    "Stopping a small vertical scroll keeps exact scrollTop at unchanged scale",
+    "Idle refinement does not write a vertical position at unchanged scale",
+    "Stopping between pages analyzes/cache-warms without snapping or zooming",
     "Continuous scroll 0 causes no plugin zoom/position writes",
     "Continuous scroll 1 causes no plugin zoom/position writes",
     "Continuous scroll 2 causes no plugin zoom/position writes",
@@ -46,6 +57,10 @@
     "blank.pdf safely falls back",
     "dark-background.pdf safely falls back",
     "Public arXiv paper with text, formulas and figures detects reliably",
+    "OFF-during-L1 regression starts while sampling is incomplete",
+    "Switch OFF lets only the in-flight sample finish and starts no remaining L1 pages",
+    "Switch OFF during L1 never applies a late initial fit",
+    "Switch ON resumes L1 and reuses completed samples without repeated analysis",
     "Disable removes toolbar controls and style",
     "Disable restores original methods and stats callback",
     "Native width works after disable",
@@ -53,8 +68,13 @@
     "Uninstall removes diagnostic reference"
   ],
   "measurements": {
-    "firstSmartFitFromImportMs": 5112,
-    "l1DetectionMs": 1104,
+    "pluginVersion": "0.1.1",
+    "firstSmartFitFromImportMs": 6541,
+    "l1DetectionMs": 1374,
+    "restoredReadingAnchor": {
+      "before": 386.60618996798297,
+      "after": 386.4973985431842
+    },
     "sampleBounds": {
       "odd": [
         149,
@@ -71,15 +91,18 @@
     },
     "detectorMs": [
       236,
-      144,
-      302,
-      153,
-      133,
-      135,
-      151
+      289,
+      378,
+      188,
+      130,
+      149,
+      98,
+      113,
+      178,
+      165
     ],
     "temporaryRasterBytes": 1920000,
-    "twoCachedFitCommandsMs": 186,
+    "twoCachedFitCommandsMs": 168,
     "keyboard": {
       "key": "0",
       "code": "Digit0",
@@ -100,9 +123,9 @@
         506,
         743
       ],
-      "elapsedMs": 193
+      "elapsedMs": 421
     },
-    "processTreePeakPrivateBytesSampled": 2123390976,
+    "processTreePeakPrivateBytesSampled": 1940987904,
     "nominalMemorySamplingIntervalMs": 500
   },
   "passed": true

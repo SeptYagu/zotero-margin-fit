@@ -39,22 +39,42 @@ async function runTests() {
     await installer.install();
     const addon=await AddonManager.getAddonByID(ID);
     check(addon?.isActive && addon.isCompatible,'XPI installs on Zotero '+Zotero.version);
+    measurements.pluginVersion=addon.version;
     Services.prefs.setBoolPref(PREF,true);
     const started=Date.now();
-    const book=await open('asymmetric-book.pdf',{pageIndex:7});
+    const book=await open('asymmetric-book.pdf',{position:{pageIndex:7,rects:[[200,390,220,410]]}});
     const {reader,c,item}=book;
     let lastReader=reader;
     const doc=reader._iframeWindow.document;
+    const readingCoordinate=controller=>{
+      const root=controller.container.getBoundingClientRect();
+      const page=controller.viewer.getPageView(controller.page()-1);
+      return ((root.top+root.bottom)/2-page.div.getBoundingClientRect().top)/page.viewport.scale;
+    };
+    const restoredY=readingCoordinate(c);
     await until(()=>c.session.models && c.metrics.writes.some(w=>w.type==='position'),'automatic fitting');
     measurements.firstSmartFitFromImportMs=Date.now()-started;
     measurements.l1DetectionMs=c.session.metrics.l1ElapsedMs;
     check(doc.querySelectorAll('[data-marginfit]').length===2,'Exactly two new controls; native Reset Zoom retained');
+    for (const name of ['height','detect']) {
+      const button=doc.querySelector(`[data-marginfit="${name}"]`);
+      check(reader._iframeWindow.getComputedStyle(button).getPropertyValue('-moz-window-dragging')==='no-drag',
+        name+' button opts out of native toolbar window dragging');
+      const rect=button.getBoundingClientRect();
+      const hit=doc.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
+      check(button===hit || button.contains(hit),name+' button is reachable at its visible mouse target');
+    }
     check(doc.getElementById('zoomAuto'),'Original Reset Zoom exists');
     await until(()=>!doc.getElementById('zoomAuto').disabled,'native Reset Zoom enabled');
     check(true,'React enables native Reset Zoom through instance stats callback');
     check(JSON.stringify(c.session.metrics.analyzed.slice(0,6))===JSON.stringify([5,6,11,12,17,18]),'L1 six samples run first without inserting restored current page');
     check(c.metrics.writes[0].page===8,'First fit targets restored page 8');
     await until(()=>c.session.cache.has(8) && c.appliedEpoch>=0,'L2 current page refined');
+    await until(()=>c.prefetchedEpoch===c.epoch,'initial L2 prefetch');
+    const fittedY=readingCoordinate(c);
+    measurements.restoredReadingAnchor={before:restoredY,after:fittedY};
+    check(Math.abs(fittedY-restoredY)*c.viewer.getPageView(7).viewport.scale<2,
+      'Initial prediction and precise refinement retain the restored mid-page reading coordinate');
     const odd=c.session.cache.get(5),even=c.session.cache.get(6);
     check(odd.raw[0]>even.raw[0]+70 && odd.raw[2]>even.raw[2]+70,'Independent left/right detection handles alternating binding margins');
     check(even.raw[1]<150 && even.raw[3]>649,'Four-edge detector includes body and isolated page number');
@@ -70,20 +90,53 @@ async function runTests() {
     await until(()=>c.viewer.currentScale>scale*0.9,'toolbar smart width');
     check(true,'Native toolbar invokes smart width through PDFView');
     const ireader=reader._internalReader;
-    await c.request('height');
-    check(c.mode==='height','Added height direction uses detected content height');
+    const heightBefore=c.metrics.writes.length;
+    doc.querySelector('[data-marginfit="height"]').click();
+    await until(()=>c.mode==='height' && c.metrics.writes.slice(heightBefore).some(w=>w.type==='position' && w.explicit),'height button click');
+    check(c.mode==='height','Added height button click uses detected content height');
     const safeHeight=even.raw[3]-even.raw[1]+16;
     const unit=c.viewer.getPageView(7).viewport.scale/c.viewer.currentScale;
     check(Math.abs(c.viewer.currentScale-(c.container.clientHeight-16)/(safeHeight*unit))<0.03,'Height fitting uses native PDF.js CSS units');
-    Services.prefs.setBoolPref(PREF,false);
+    doc.querySelector('[data-marginfit="detect"]').click();
+    await until(()=>!Services.prefs.getBoolPref(PREF,true) && doc.querySelector('[data-marginfit="detect"]').getAttribute('aria-pressed')==='false','detect button OFF');
+    check(true,'Detect button click switches OFF and updates its visible pressed state');
     ireader.zoomPageWidth();
     check(c.viewer.currentScaleValue==='page-width','Disabled native width restores page-width');
     await until(()=>doc.getElementById('zoomAuto').disabled,'native disabled state restored');
     check(true,'Disabled callback restores native Reset Zoom disabled state');
     ireader.zoomPageHeight();
     check(c.viewer.currentScaleValue==='page-fit','Disabled native height restores page-fit');
-    Services.prefs.setBoolPref(PREF,true);
+    doc.querySelector('[data-marginfit="detect"]').click();
+    await until(()=>Services.prefs.getBoolPref(PREF,false) && doc.querySelector('[data-marginfit="detect"]').getAttribute('aria-pressed')==='true','detect button ON');
+    check(true,'Detect button click switches ON and updates its visible pressed state');
     await until(()=>!c.manual,'re-enabled');
+    await c.request('width');
+    await until(()=>c.prefetchedEpoch===c.epoch,'prefetch after explicit fit');
+    check([c.page()-1,c.page(),c.page()+1,c.page()+2,c.page()+3].filter(p=>p>=1 && p<=24).every(p=>c.session.cache.has(p)),
+      'Explicit fit is followed by idle neighbor prefetch');
+    const settledTop=c.container.scrollTop;
+    c.container.dispatchEvent(new c.win.WheelEvent('wheel',{deltaY:10,bubbles:true}));
+    c.container.scrollTop=settledTop+10;
+    await sleep(150);
+    const stoppedTop=c.container.scrollTop,stoppedScale=c.viewer.currentScale;
+    const stoppedBaseline=c.metrics.writes.length;
+    await until(()=>c.prefetchedEpoch===c.epoch,'idle on same-size page');
+    check(c.viewer.currentScale===stoppedScale && c.container.scrollTop===stoppedTop,
+      'Stopping a small vertical scroll keeps exact scrollTop at unchanged scale');
+    check(c.metrics.writes.slice(stoppedBaseline).every(w=>w.type!=='position' || !w.verticalWritten),
+      'Idle refinement does not write a vertical position at unchanged scale');
+    // Put the viewport center in the physical gap between two adjacent pages.
+    const gapPage=c.viewer.getPageView(c.page()-1),gapNext=c.viewer.getPageView(c.page());
+    const rootRect=c.container.getBoundingClientRect();
+    const gapMid=(gapPage.div.getBoundingClientRect().bottom+gapNext.div.getBoundingClientRect().top)/2;
+    c.container.dispatchEvent(new c.win.WheelEvent('wheel',{deltaY:30,bubbles:true}));
+    c.container.scrollTop+=gapMid-(rootRect.top+rootRect.bottom)/2;
+    await sleep(150);
+    const gapTop=c.container.scrollTop,gapScale=c.viewer.currentScale,gapWrites=c.metrics.writes.length;
+    await until(()=>c.prefetchedEpoch===c.epoch,'idle page-gap detection and prefetch');
+    check(c.container.scrollTop===gapTop && c.viewer.currentScale===gapScale && c.metrics.writes.length===gapWrites,
+      'Stopping between pages analyzes/cache-warms without snapping or zooming');
+    c.viewer.currentPageNumber=8;
     await c.request('width');
     const baseline=c.metrics.writes.length;
     for(let n=0;n<10;n++) {
@@ -200,6 +253,21 @@ async function runTests() {
       measurements.publicPaper={source:'https://arxiv.org/pdf/1706.03762',pages:paper.c.app.pdfDocument.numPages,
         raw:detected.raw,elapsedMs:detected.elapsedMs};
     }
+    const paused=await open('asymmetric-book.pdf',{pageIndex:12});
+    lastReader=paused.reader;
+    const pausedDoc=paused.reader._iframeWindow.document;
+    const analyzedBeforeOFF=paused.c.session.metrics.analyzed.length;
+    const activeBeforeOFF=paused.c.session.metrics.active;
+    check(analyzedBeforeOFF<6,'OFF-during-L1 regression starts while sampling is incomplete');
+    pausedDoc.querySelector('[data-marginfit="detect"]').click();
+    await paused.c.session.tail;
+    check(!paused.c.session.models && paused.c.session.metrics.analyzed.length<=analyzedBeforeOFF+activeBeforeOFF,
+      'Switch OFF lets only the in-flight sample finish and starts no remaining L1 pages');
+    check(paused.c.metrics.writes.length===0,'Switch OFF during L1 never applies a late initial fit');
+    pausedDoc.querySelector('[data-marginfit="detect"]').click();
+    await until(()=>paused.c.session.models && paused.c.session.cache.has(13),'resume paused L1 and L2');
+    check([5,6,11,12,17,18].every(p=>paused.c.session.metrics.analyzed.filter(n=>n===p).length===1),
+      'Switch ON resumes L1 and reuses completed samples without repeated analysis');
     const finalC=control(lastReader),finalDoc=lastReader._iframeWindow.document;
     const view=finalC.view,wrappedWidth=view.zoomPageWidth,wrappedStats=view._onChangeViewStats;
     await addon.disable();

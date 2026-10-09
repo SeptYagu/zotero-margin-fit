@@ -3,6 +3,8 @@
 var MarginFitPersistentCache = (() => {
   const STORAGE_VERSION = 2; // P1-C adds validated folio metadata for pure-text pages.
   const MAX_RECORDS = 3000;
+  // One in-process queue per cache file: parallel Zotero reader instances merge safely.
+  const WRITE_QUEUE = new Map();
   const validNumber = x => typeof x === "number" && Number.isFinite(x);
   function validBox(box,width,height) {
     return Array.isArray(box) && box.length===4 && box.every(validNumber) &&
@@ -40,7 +42,7 @@ var MarginFitPersistentCache = (() => {
       this.key=cacheKey(fingerprints,count,fileStamp);
       this.directory=path.join(path.profileDir,"marginfit-boundaries");
       this.file=this.key ? path.join(this.directory,this.key+".json") : null;
-      this.pending=null;this.timer=null;this.writing=Promise.resolve();
+      this.dirty=new Map();this.timer=null;this.writing=Promise.resolve();
     }
     unpack(payload) {
       const result=new Map();
@@ -73,31 +75,49 @@ var MarginFitPersistentCache = (() => {
         key:this.key,numPages:this.count,pages};
     }
 
+    schedulePage(p, record) {
+      if(!this.file || !Number.isSafeInteger(p) || p<1 || p>this.count ||
+        !validRecord(record,this.version)) return;
+      // Constant work per new page. The full snapshot is built only on flush.
+      this.dirty.set(p,record);
+      this.armWrite();
+    }
+    // Compatibility helper for callers importing an existing map (not the hot path).
     schedule(cache) {
       if(!this.file)return;
-      this.pending=this.pack(cache);
+      for(const [p,r] of cache) if(Number.isSafeInteger(p) && p>=1 && p<=this.count &&
+        validRecord(r,this.version)) this.dirty.set(p,r);
+      this.armWrite();
+    }
+    armWrite() {
       if(this.timer)this.timers.clearTimeout(this.timer);
       this.timer=this.timers.setTimeout(()=>{this.timer=null;this.flush().catch(()=>{});},1200);
     }
     async flush() {
       if(this.timer){this.timers.clearTimeout(this.timer);this.timer=null;}
-      const payload=this.pending;
-      if(!payload || !this.file)return this.writing;
-      this.pending=null;
-      this.writing=this.writing.catch(()=>{}).then(async()=>{
+      if(!this.dirty.size || !this.file) return this.writing;
+      const changed=new Map(this.dirty);
+      this.dirty.clear();
+      const previous=WRITE_QUEUE.get(this.file)||Promise.resolve();
+      // Queue the read/merge/write transaction after all other reader instances.
+      const task=previous.catch(()=>{}).then(async()=>{
         await this.io.makeDirectory(this.directory,{createAncestors:true});
-        // Merge other concurrent reader instances' records instead of dropping them.
         let prior;
         try{prior=this.unpack(await this.io.readJSON(this.file));}catch(_){prior=new Map();}
-        for(const [p,r] of payload.pages)prior.set(p,r);
-        await this.io.writeJSON(this.file,this.pack(prior));
+        for(const [p,r] of changed) {
+          prior.delete(p); // refresh insertion order for the bounded recent-page cache
+          prior.set(p,r);
+        }
+        const recent=prior.size>MAX_RECORDS
+          ?new Map([...prior].slice(-MAX_RECORDS)):prior;
+        await this.io.writeJSON(this.file,this.pack(recent));
       });
-      return this.writing;
+      WRITE_QUEUE.set(this.file,task);
+      task.finally(()=>{if(WRITE_QUEUE.get(this.file)===task)WRITE_QUEUE.delete(this.file);}).catch(()=>{});
+      this.writing=task;
+      return task;
     }
-    close(cache) {
-      if(this.pending)this.pending=this.pack(cache);
-      return this.flush().catch(()=>{});
-    }
+    close() {return this.flush().catch(()=>{});}
   }
   return {STORAGE_VERSION,MAX_RECORDS,validRecord,cacheKey,Store};
 })();

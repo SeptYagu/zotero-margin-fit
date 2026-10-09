@@ -66,3 +66,37 @@ test('file size / mtime stamp distinguishes replaced PDF at same fingerprint',as
   const revised=new P.Store({io:e.io,path:e.path,timers:e.timers,fingerprints:key,count:12,version:C.VERSION,fileStamp:'4097-1791510000000'});
   assert.equal((await revised.load()).size,0);
 });
+
+test('incremental page scheduling defers all full-map packing until flush',async()=>{
+ const e=env();
+ const s=new P.Store({io:e.io,path:e.path,timers:e.timers,fingerprints:key,count:1100,version:C.VERSION});
+ let packCalls=0;
+ const oldPack=s.pack.bind(s);
+ s.pack=(m)=>{packCalls++;return oldPack(m);};
+ for(let p=1;p<=1000;p++)s.schedulePage(p,record());
+ assert.equal(packCalls,0,'no full-cache pack in hot detect loop');
+ assert.equal(s.dirty.size,1000);
+ await s.flush();
+ assert.equal(packCalls,1,'one batch serialized on flush');
+ assert.equal((await s.load()).size,1000);
+ await s.close();
+});
+test('parallel reader flushes serialize and merge rather than clobber pages',async()=>{
+ const e=env(),a=e.make(),b=e.make();
+ a.schedulePage(1,record());
+ b.schedulePage(2,record(90));
+ await Promise.all([a.flush(),b.flush()]);
+ const saved=await e.make().load();
+ assert.equal(saved.size,2);
+ assert.ok(saved.has(1)&&saved.has(2));
+});
+test('per-document cache keeps newest 3000 entries at the size cap',async()=>{
+ const e=env();
+ const s=new P.Store({io:e.io,path:e.path,timers:e.timers,fingerprints:key,count:3100,version:C.VERSION});
+ for(let p=1;p<=3100;p++)s.schedulePage(p,record());
+ await s.flush();
+ const saved=await s.load();
+ assert.equal(saved.size,3000);
+ assert.equal(saved.has(1),false);
+ assert.equal(saved.has(3100),true);
+});

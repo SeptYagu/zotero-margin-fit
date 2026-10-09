@@ -270,7 +270,8 @@ var MarginFitCore = (() => {
         if (!this.closed) {
           this.cache.set(p, value);
           this.metrics.analyzed.push(p);
-          this.store?.schedule(this.cache);
+          if (this.store?.schedulePage) this.store.schedulePage(p,value);
+          else this.store?.schedule(this.cache);
         }
         return value;
       } finally { this.metrics.active--; }

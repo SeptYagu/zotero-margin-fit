@@ -1,13 +1,13 @@
 # Changelog
 
-## 0.1.5 — Development (2026-10-09)
+## 0.1.5 — 2026-10-09
 
 - P1-A: scalar text bounding boxes with deterministic randomized equivalence checks.
 - P1-B: retain safe page-level classification; cross-document raster-first heuristic deferred pending representative A/B evidence.
 - P1-C: exclude only high-confidence pure-text page numbers from fit bounds, preserving full original PDF bounds, scanned/illustrated content and annotations.
 - P2-A: dirty-page persistence, batched writes and serialized multi-reader cache merging.
 - P2-B: trailing scroll-event geometry debounce.
-- Current developer candidate is NOT published; Zotero GUI integration is pending due isolated test debugger/headless startup failures.
+- Validated with Zotero 10.0.6 isolated profiles: 47 unit tests, 70 reader integration checks, 18 page-number/cache checks. Scroll hot-path work was reduced; total application CPU improvement is workload-dependent.
 
 ## 0.1.4 — 2026-10-08
 

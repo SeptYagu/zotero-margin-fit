@@ -137,6 +137,7 @@ var MarginFitCore = (() => {
       this.tail = Promise.resolve();
       this.closed = false;
       this.paused = false;
+      this.activeUntil = 0;
       this.metrics = { analyzed: [], cacheHits: 0, active: 0, peakConcurrent: 0 };
     }
     serial(job) {
@@ -145,6 +146,16 @@ var MarginFitCore = (() => {
       return task;
     }
     setEnabled(enabled) { this.paused = !enabled; }
+    noteActivity(time = Date.now()) { this.activeUntil = Math.max(this.activeUntil, time + IDLE_MS); }
+    allowExplicitRequest() { this.activeUntil = 0; }
+    async waitForQuiet() {
+      while (!this.closed && !this.paused) {
+        const remaining = this.activeUntil - Date.now();
+        if (remaining <= 0) return true;
+        await new Promise(resolve => setTimeout(resolve, Math.min(remaining, 100)));
+      }
+      return false;
+    }
     async read(p, rotation) {
       const prior = this.cache.get(p);
       if (prior && (rotation === undefined || prior.rotation === rotation)) {
@@ -169,7 +180,7 @@ var MarginFitCore = (() => {
         const started = Date.now();
         const pages = samples(this.count);
         for (const p of pages) {
-          if (this.closed || this.paused) return null;
+          if (!await this.waitForQuiet()) return null;
           await this.read(p);
         }
         if (!this.closed && !this.paused) {
@@ -191,7 +202,7 @@ var MarginFitCore = (() => {
       for (const n of neighbors(p, this.count)) {
         if (this.closed || this.paused || !valid()) break;
         await this.serial(async () => {
-          if (this.closed || this.paused || !valid()) return;
+          if (!await this.waitForQuiet() || !valid()) return;
           const value = await this.read(n, rotation);
           if (value && n === p && !this.closed && !this.paused && valid()) await onCurrent(value);
         });

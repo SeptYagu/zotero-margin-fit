@@ -125,3 +125,24 @@ test('switching detection off finishes only the in-flight L1 page and resumes fr
   f.enable();f.session.setEnabled(true);await f.session.l1();
   assert.deepEqual(started,[5,6,11,12,17,18]);f.controller.close();
 });
+
+test('scroll bursts coalesce expensive visible-page geometry reads',async()=>{
+  const f=setup();f.enable();
+  let calls=0;
+  const original=f.controller.page.bind(f.controller);
+  f.controller.page=(...args)=>{calls++;return original(...args);};
+  for(let i=0;i<80;i++) f.controller.input();
+  assert.equal(calls,0,'no synchronous geometry read per input');
+  await new Promise(r=>setTimeout(r,115));
+  assert.ok(calls<=2,'coalesced geometry read once per burst');
+  f.controller.close();
+});
+test('OFF scroll path does not inspect visible-page geometry',async()=>{
+  const f=setup();
+  let calls=0;
+  f.controller.page=()=>{calls++;return 1;};
+  for(let i=0;i<50;i++) f.controller.input();
+  await new Promise(r=>setTimeout(r,90));
+  assert.equal(calls,0);
+  f.controller.close();
+});

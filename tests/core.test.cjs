@@ -104,3 +104,37 @@ test('reversible hooks restore inherited methods and own descriptors exactly',()
 test('restoration does not overwrite another extension installed after ours',()=>{
   const obj={fn:()=>1};const undo=C.hook(obj,'fn',()=>2);const later=()=>3;obj.fn=later;undo();assert.equal(obj.fn,later);
 });
+
+test('L1 waits for scrolling activity before starting the next PDF render',async()=>{
+  const analyzed=[];
+  let firstStarted,release;
+  const started=new Promise(r=>firstStarted=r);
+  const block=new Promise(r=>release=r);
+  const session=new C.Session(24,async p=>{
+    analyzed.push(p);
+    if(analyzed.length===1){firstStarted();await block;}
+    return record();
+  });
+  const work=session.l1();
+  await started;
+  session.noteActivity();
+  release();
+  await new Promise(r=>setTimeout(r,110));
+  assert.deepEqual(analyzed,[5]);
+  await work;
+  assert.deepEqual(analyzed,[5,6,11,12,17,18]);
+  session.close();
+});
+
+test('explicit Fit unblocks L1 idle cooldown without changing sample order',async()=>{
+  const started=Date.now(), analyzed=[];
+  const session=new C.Session(24,async p=>{analyzed.push(p);return record();});
+  session.noteActivity();
+  const pending=session.l1();
+  await new Promise(r=>setTimeout(r,20));
+  session.allowExplicitRequest();
+  await pending;
+  assert.ok(Date.now()-started<400,'explicit user action must not wait for full scroll cooldown');
+  assert.deepEqual(analyzed,[5,6,11,12,17,18]);
+  session.close();
+});

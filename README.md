@@ -4,7 +4,7 @@ Smart content fitting for the Zotero PDF reader. Keeps the native **Reset Zoom**
 
 Zotero PDF 阅读器的智能内容适应插件。保留原生 **Reset Zoom**，只新增 **Fit Height / 适合高度** 和 **Detect Margins / 识别边界** 两个控件。
 
-本项目依照 [需求文档](09-智能去白边阅读开关.md) 实现。当前为 **0.1.2 实验版本**，使用 Zotero 私有阅读器接口；兼容范围限定为 Zotero 10.0.x。运行测试的具体版本、通过项和待测项见 [验证记录](docs/verification.md)。
+本项目依照 [需求文档](09-智能去白边阅读开关.md) 实现。当前版本为 **0.1.3**（滚动性能优化），使用 Zotero 私有阅读器接口，使用 Zotero 私有阅读器接口；兼容范围限定为 Zotero 10.0.x。运行测试的具体版本、通过项和待测项见 [验证记录](docs/verification.md)。
 
 ## 安装与使用
 
@@ -42,7 +42,7 @@ npm test
 npm run build
 ```
 
-产物为 `dist/zotero-margin-fit-0.1.2.xpi`。GitHub Actions 自动运行核心测试并生成 XPI 构建附件。
+构建产物为 `dist/zotero-margin-fit-0.1.3.xpi`，正式发布后可从 GitHub Releases 安装或由 Zotero 原生自动更新获取。GitHub Actions 自动运行核心测试并生成 XPI 构建附件。
 
 在安装 Zotero 的 Windows 电脑上运行真实阅读器回归：
 

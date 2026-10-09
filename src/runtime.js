@@ -27,6 +27,7 @@ var MarginFitRuntime = (() => {
       this.closed = false; this.muted = false; this.manual = false;
       this.appliedEpoch = -1; this.restores = []; this.listeners = [];
       this.prefetchedEpoch = -1; this.refiningEpoch = null;
+      this.inputFlushTimer = null;
       this.session.setEnabled(host.enabled());
       this.metrics = { writes: [], fallback: 0 };
       const width = view.zoomPageWidth, height = view.zoomPageHeight, stats = view._onChangeViewStats;
@@ -96,12 +97,23 @@ var MarginFitRuntime = (() => {
       return C.primaryPage(visible, this.lastPage, this.viewer.currentPageNumber);
     }
     input() {
+      if (this.closed) return;
       this.muted = false;
       this.epoch++; this.lastInput = this.host.now();
-      const p = this.page();
-      if (p !== this.lastPage) this.manual = false;
-      this.lastPage = p;
-      this.arm();
+      this.cancelTimer();
+      // Wheel and native scroll events often describe the same movement. Invalidate
+      // pending work immediately, but only inspect page geometry once per short window.
+      if (!this.host.enabled()) return;
+      this.session.noteActivity?.(this.lastInput);
+      if (this.inputFlushTimer) return;
+      this.inputFlushTimer = this.host.setTimeout(() => {
+        this.inputFlushTimer = null;
+        if (this.closed || !this.host.enabled()) return;
+        const p = this.page();
+        if (p !== this.lastPage) this.manual = false;
+        this.lastPage = p;
+        this.arm();
+      }, 75);
     }
     arm() {
       this.cancelTimer();
@@ -158,6 +170,9 @@ var MarginFitRuntime = (() => {
       this.manual = false; this.epoch++; this.cancelTimer();
       this.anchor = this.viewer.currentScale;
       const token = this.epoch, p = this.page();
+      // Explicit Fit commands bypass the background scrolling cooldown;
+      // the L1-before-L2 ordering still applies.
+      this.session.allowExplicitRequest?.();
       try {
         if (!await this.session.l1()) { this.arm(); return; }
         const rotation = this.viewer.getPageView(p-1).viewport.rotation;
@@ -241,6 +256,7 @@ var MarginFitRuntime = (() => {
     toggle() {
       if (this.closed) return;
       this.epoch++; this.cancelTimer(); this.manual = false; this.muted = false;
+      this.host.clearTimeout(this.inputFlushTimer); this.inputFlushTimer = null;
       this.session.setEnabled(this.host.enabled());
       this.anchor = this.viewer.currentScale;
       this.view._updateViewStats();
@@ -249,6 +265,7 @@ var MarginFitRuntime = (() => {
     close(unloading = false) {
       if (this.closed) return;
       this.closed = true; this.epoch++; this.cancelTimer();
+      this.host.clearTimeout(this.inputFlushTimer); this.inputFlushTimer = null;
       try { this.resize?.disconnect(); } catch (_) { /* frame already destroyed */ }
       for (const remove of this.listeners) try { remove(); } catch (_) { /* dead event target */ }
       for (const restore of this.restores.reverse()) try { restore(); } catch (_) { /* dead view */ }

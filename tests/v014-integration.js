@@ -51,6 +51,15 @@ async function run(){
    assert(!measured.fastPath,'real paper with vector figures must raster');
   }
 
+  const numbered=await open('pure-folio.pdf');
+  await until(()=>numbered.c.session.models,'folio L1');
+  assert(!!numbered.c.session.folioPattern,'L1 recognizes repeated numbered footer without extra scans');
+  const nr=await numbered.c.session.serial(()=>numbered.c.session.read(8,0));
+  assert(nr.folio && nr.folio.body[3]<nr.raw[3],
+    'high-confidence folio has a separately preserved body fitting box');
+  const years=await open('edge-year.pdf');
+  await until(()=>years.c.session.models,'constant year L1');
+  assert(years.c.session.folioPattern===null,'constant footer year is not excluded');
   const book=await open('asymmetric-book.pdf');
   await until(()=>book.c.session.models,'book L1');
   assert(book.c.session.metrics.analyzed.length>=6,'first open detects L1');

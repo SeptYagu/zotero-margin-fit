@@ -1,7 +1,7 @@
 /* Shared pure geometry and serial detection scheduler; no Zotero dependency. */
 "use strict";
 var MarginFitCore = (() => {
-  const VERSION = 2; // New strict operator-list fast path and persistent cache schema.
+  const VERSION = 3; // P1-C: versioned page-number candidate metadata; 0.1.4 caches invalidate.
   // PDF.js scale=1 viewport units (1/72 inch), applied only at display time.
   const SAFETY = 8;
   const IDLE_MS = 500;
@@ -86,6 +86,71 @@ var MarginFitCore = (() => {
     }
     return left === Infinity ? null : [clamp(left,0,viewport.width), clamp(top,0,viewport.height),
       clamp(right,0,viewport.width), clamp(bottom,0,viewport.height)];
+  }
+  // Identify a folio candidate during the existing text-bbox traversal.
+  // Pure-text mode only: a number at the edge is not sufficient on its own.
+  function textAndFolio(content, viewport) {
+    let body = null, candidate = null, candidates = 0;
+    const all = textBox(content, viewport, (item,l,t,r,b) => {
+      const text = item.str.trim();
+      const h = viewport.height, w = viewport.width;
+      const upper = t >= 0 && b < h * .105;
+      const lower = b <= h && t > h * .895;
+      const short = b-t > 0 && b-t < h*.035 && r-l > 0 && r-l < w*.22;
+      let ordinal = null;
+      if (short && (upper || lower)) {
+        if (/^\d{1,4}$/.test(text)) ordinal = Number(text);
+        else if (/^[IVXLCDM]{1,8}$/i.test(text)) {
+          const values = {I:1,V:5,X:10,L:50,C:100,D:500,M:1000};
+          let total = 0, previous = 0;
+          for (let i=text.length-1;i>=0;i--) {
+            const v=values[text[i].toUpperCase()];
+            total+=v<previous?-v:v;previous=v;
+          }
+          if (total>0 && total<4000) ordinal=total;
+        }
+      }
+      if (ordinal !== null) {
+        candidates++;
+        if (candidates === 1) candidate = {box:[l,t,r,b],ordinal,edge:upper?'top':'bottom'};
+      } else {
+        body=union(body,[l,t,r,b]);
+      }
+    });
+    if (!all || !body || candidates !== 1 || !candidate) return {all,folio:null};
+    const b = candidate.box;
+    const gap = candidate.edge === 'top' ? body[1]-b[3] : b[1]-body[3];
+    // A freestanding number requires whitespace from every other text glyph.
+    if (gap < Math.max(12,viewport.height*.025)) return {all,folio:null};
+    return {all,folio:{...candidate,body}};
+  }
+  function folioPattern(pages, cache) {
+    const votes=new Map();
+    for (const p of pages) {
+      const r=cache.get(p),f=r?.folio;
+      if (!r || !r.fastPath || r.quality!=='reliable' || !f) continue;
+      const offset=f.ordinal-p,key=f.edge+':'+offset;
+      let v=votes.get(key);
+      if(!v){v={edge:f.edge,offset,positions:[],pages:[]};votes.set(key,v);}
+      v.positions.push((f.box[1]+f.box[3])/(2*r.height));
+      v.pages.push(p);
+    }
+    for (const candidate of votes.values()) {
+      if (candidate.pages.length < 4) continue;
+      const positions=candidate.positions,mean=positions.reduce((a,b)=>a+b,0)/positions.length;
+      if (!positions.every(n=>Math.abs(n-mean)<.035)) continue;
+      return {edge:candidate.edge,offset:candidate.offset,relativeY:mean,samples:candidate.pages.length};
+    }
+    return null;
+  }
+  function fitPageRecord(record,pattern,p) {
+    const f=record?.folio;
+    if (!pattern || !f || !record.fastPath || record.quality!=='reliable' ||
+      f.edge!==pattern.edge || f.ordinal-p!==pattern.offset ||
+      Math.abs((f.box[1]+f.box[3])/(2*record.height)-pattern.relativeY)>.035)
+      return record;
+    // Original raw remains full-content bounds; only the fitting calculation changes.
+    return {...record,raw:f.body,fullRaw:record.raw,folioExcluded:true};
   }
   // Deny by default: a single graphic/image/shading/unknown operation requires raster analysis.
   const TEXT_OPS = new Set(["dependency","save","restore","transform","beginText","endText",
@@ -222,6 +287,7 @@ var MarginFitCore = (() => {
         }
         if (!this.closed && !this.paused) {
           this.models = parityModels(this.cache, pages);
+          this.folioPattern = folioPattern(pages, this.cache);
           const rotations = new Set(pages.map(p => this.cache.get(p)?.viewerRotation ?? 0));
           this.modelRotation = rotations.size === 1 ? [...rotations][0] : null;
           this.metrics.l1ElapsedMs = Date.now() - started;
@@ -248,6 +314,7 @@ var MarginFitCore = (() => {
     close() { this.closed = true; this.store?.close(this.cache); this.cache.clear(); }
   }
   return { VERSION, SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,
-    parityModels, prediction, multiply, textBox, isTextOnlyOps, inkBox, scaleDecision, primaryPage, hook, Session };
+    parityModels, prediction, multiply, textBox, textAndFolio, folioPattern, fitPageRecord,
+    isTextOnlyOps, inkBox, scaleDecision, primaryPage, hook, Session };
 })();
 if (typeof module !== "undefined") module.exports = MarginFitCore;

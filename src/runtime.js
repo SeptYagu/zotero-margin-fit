@@ -205,7 +205,8 @@ var MarginFitRuntime = (() => {
       if (!valid() || (!explicit && !initial && !this.stable(token,p))) return;
       // PDF.js currentScale excludes its 96/72 CSS conversion; viewport.scale includes it.
       const unitScale = this.viewer.getPageView(p-1).viewport.scale / this.viewer.currentScale;
-      const decision = C.scaleDecision(record, this.mode,
+      const fitting = C.fitPageRecord(record, this.session.folioPattern, p);
+      const decision = C.scaleDecision(fitting, this.mode,
         { width: Math.max(1,this.container.clientWidth-16)/unitScale, height: Math.max(1,this.container.clientHeight-16)/unitScale },
         this.viewer.currentScale, this.anchor, explicit);
       const currentPage = this.viewer.getPageView(p-1);
@@ -280,7 +281,8 @@ var MarginFitRuntime = (() => {
     let canvas;
     try {
       const content = unwrap(await page.getTextContent());
-      const text = C.textBox(content,viewport);
+      const folioAnalysis = C.textAndFolio(content,viewport);
+      const text = folioAnalysis.all;
       // A strict PDF.js operator allowlist forbids graphics, scans and unknown paint ops.
       // Only then can the cheap text geometry replace offscreen rasterization.
       if (text) {
@@ -294,6 +296,7 @@ var MarginFitRuntime = (() => {
             if (Array.isArray(annotations) && annotations.length === 0)
               return {raw:text,width:viewport.width,height:viewport.height,rotation:viewport.rotation,
                 viewerRotation,quality:'reliable',version:C.VERSION,fastPath:true,
+                folio:folioAnalysis.folio,
                 revision:app.pdfDocument.fingerprints?.join(':'),elapsedMs:Date.now()-start,rasterBytes:0};
           }
         } catch (_) { /* No reliable operator list: use the existing raster detector. */ }

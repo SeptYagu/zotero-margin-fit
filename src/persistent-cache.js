@@ -1,16 +1,28 @@
 /* Profile-local cache for compact, validated PDF boundary records. No PDF bytes stored. */
 "use strict";
 var MarginFitPersistentCache = (() => {
-  const STORAGE_VERSION = 1;
+  const STORAGE_VERSION = 2; // P1-C adds validated folio metadata for pure-text pages.
   const MAX_RECORDS = 3000;
   const validNumber = x => typeof x === "number" && Number.isFinite(x);
+  function validBox(box,width,height) {
+    return Array.isArray(box) && box.length===4 && box.every(validNumber) &&
+      box[0]>=0 && box[1]>=0 && box[2]>box[0] && box[3]>box[1] &&
+      box[2]<=width+.01 && box[3]<=height+.01;
+  }
+  function validFolio(f,r) {
+    return f && r.fastPath===true && r.quality==='reliable' &&
+      Number.isSafeInteger(f.ordinal) && f.ordinal>=0 && f.ordinal<=9999 &&
+      (f.edge==='top'||f.edge==='bottom') &&
+      validBox(f.box,r.width,r.height) && validBox(f.body,r.width,r.height);
+  }
   function validRecord(r, version) {
     return !!r && r.version === version && ["reliable","fallback"].includes(r.quality) &&
       validNumber(r.width) && r.width > 0 && validNumber(r.height) && r.height > 0 &&
       [0,90,180,270].includes(r.rotation) && [0,90,180,270].includes(r.viewerRotation) &&
       Array.isArray(r.raw) && r.raw.length === 4 && r.raw.every(validNumber) &&
       r.raw[0] >= 0 && r.raw[1] >= 0 && r.raw[2] > r.raw[0] && r.raw[3] > r.raw[1] &&
-      r.raw[2] <= r.width + 0.01 && r.raw[3] <= r.height + 0.01;
+      r.raw[2] <= r.width + 0.01 && r.raw[3] <= r.height + 0.01 &&
+      (r.folio == null || validFolio(r.folio,r));
   }
   function cacheKey(fingerprints, count, fileStamp = null) {
     if (!Number.isSafeInteger(count) || count < 1 || count > 100000 ||
@@ -52,7 +64,10 @@ var MarginFitPersistentCache = (() => {
       for(const [p,r] of cache) if(pages.length < MAX_RECORDS &&
         Number.isSafeInteger(p) && p>=1 && p<=this.count && validRecord(r,this.version)) {
         const {raw,width,height,rotation,viewerRotation,quality,version}=r;
-        pages.push([p,{raw:[...raw],width,height,rotation,viewerRotation,quality,version}]);
+        const summary={raw:[...raw],width,height,rotation,viewerRotation,quality,version};
+        if(r.fastPath===true)summary.fastPath=true;
+        if(r.fastPath===true && r.folio)summary.folio={...r.folio,box:[...r.folio.box],body:[...r.folio.body]};
+        pages.push([p,summary]);
       }
       return {storageVersion:STORAGE_VERSION,algorithmVersion:this.version,
         key:this.key,numPages:this.count,pages};

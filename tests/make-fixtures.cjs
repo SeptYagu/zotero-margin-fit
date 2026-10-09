@@ -36,6 +36,16 @@ for(let p=1;p<=24;p++) {
   book.push({content});
 }
 pdf('asymmetric-book.pdf',book);
+const folioBook=[];
+const edgeYear=[];
+for(let p=1;p<=24;p++){
+  const body='0 g BT /F1 12 Tf 80 650 Td (Main body of continuous text.) Tj ET '+
+    'BT /F1 10 Tf 80 350 Td (Another paragraph of text without graphics.) Tj ET ';
+  folioBook.push({content:body+`BT /F1 9 Tf 285 32 Td (${p}) Tj ET`});
+  edgeYear.push({content:body+'BT /F1 9 Tf 285 32 Td (2026) Tj ET'});
+}
+pdf('pure-folio.pdf',folioBook);
+pdf('edge-year.pdf',edgeYear);
 // Distinct initial bytes keep OFF-during-L1 regression cold despite the new disk cache.
 pdf('asymmetric-book-pause.pdf',book.map(d=>({content:d.content.replace('MarginFit generated','PauseCase generated')})));
 const w=600,h=800,data=Buffer.alloc(w*h*3,255);

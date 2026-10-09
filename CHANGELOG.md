@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 — 2026-10-08
+
+Enable native Zotero updates with a versioned, SHA-256-verified feed. Show English before Chinese in the plugin description, tooltips, accessible labels, and ON/OFF/fallback messages.
+
+启用 Zotero 原生自动更新源，提供版本与 SHA-256 校验值。插件说明、按钮提示、无障碍名称及开关／回退提示统一英文在前、中文在后。
+
 ## 0.1.1 — 2026-10-08
 
 - 修复新增按钮被工具栏窗口拖动区域接走点击的问题，实际按钮点击可切换高度模式和识别开关。

@@ -369,9 +369,12 @@ var MarginFitRuntime = (() => {
       finally { this.pending.delete(view); }
     }
     strings() {
-      return this.Services.locale.appLocaleAsBCP47.startsWith("zh")
-        ? { height: "适合高度", detect: "识别边界", on: "开启", off: "关闭", fallback: "无法可靠识别，保留当前视图" }
-        : { height: "Fit Height", detect: "Detect Margins", on: "On", off: "Off", fallback: "Uncertain page boundaries; keeping the current view" };
+      return { height: "Fit Height / 适合高度", detect: "Detect Margins / 识别边界" };
+    }
+    detectTitle(fallback = false) {
+      const state = this.enabled() ? ["On", "开启"] : ["Off", "关闭"];
+      return `Detect Margins: ${state[0]}${fallback ? " — Uncertain page boundaries; keeping the current view" : ""}` +
+        ` / 识别边界：${state[1]}${fallback ? " — 无法可靠识别，保留当前视图" : ""}`;
     }
     toolbar({ reader,doc,append }) {
       if (!this.active || (reader.type !== "pdf" && reader._type !== "pdf")) return;
@@ -418,9 +421,9 @@ var MarginFitRuntime = (() => {
         try {
         const height = bar.querySelector('[data-marginfit="height"]');
         const toggle = bar.querySelector('[data-marginfit="detect"]');
-        height.title = `${t.height} / Fit Height`;
+        height.title = t.height;
         height.setAttribute("aria-label",t.height);
-        toggle.title = `${t.detect} / Detect Margins: ${this.enabled() ? t.on : t.off}`;
+        toggle.title = this.detectTitle();
         toggle.setAttribute("aria-label",t.detect);
         toggle.setAttribute("aria-pressed",String(this.enabled()));
         } catch (_) { /* closed iframe; discovery will remove this entry */ }
@@ -431,8 +434,7 @@ var MarginFitRuntime = (() => {
         try {
         if (![reader._internalReader?._primaryView,reader._internalReader?._secondaryView].includes(view)) continue;
         const toggle = bar.querySelector('[data-marginfit="detect"]');
-        const t = this.strings();
-        toggle.title = `${t.detect} / Detect Margins: ${this.enabled() ? t.on : t.off}${reason ? ` — ${t.fallback}` : ""}`;
+        toggle.title = this.detectTitle(!!reason);
         toggle.dataset.status = reason ? "fallback" : "ready";
         } catch (_) { /* closed iframe */ }
       }

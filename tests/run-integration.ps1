@@ -1,6 +1,9 @@
-param([string]$ZoteroPath = 'C:\Program Files\Zotero\zotero.exe')
+param([string]$ZoteroPath = 'C:\Program Files\Zotero\zotero.exe', [string]$DriverScript = 'integration-bootstrap.js')
 $ErrorActionPreference = 'Stop'
 $projectPath = Split-Path $PSScriptRoot -Parent
+$driverPath = Join-Path $PSScriptRoot $DriverScript
+if (!(Test-Path -LiteralPath $driverPath -PathType Leaf)) { throw 'Test driver not found' }
+$expectedVersion = (Get-Content -LiteralPath (Join-Path $projectPath 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json).version
 $runDirectory = Join-Path $projectPath ('.test-harness\' + [guid]::NewGuid().ToString('N'))
 $profileDirectory = Join-Path $runDirectory 'profile'
 $dataDirectory = Join-Path $env:LOCALAPPDATA ('Temp\ZoteroMarginFitTests\' + (Split-Path $runDirectory -Leaf) + '\data')
@@ -27,6 +30,7 @@ $prefs = [ordered]@{
     'marginfit.integrationProfile' = $true
     'marginfit.integrationResult' = $resultPath
     'marginfit.integrationXPI' = $xpiPath
+    'marginfit.integrationExpectedVersion' = $expectedVersion
     'marginfit.integrationFixtures' = $fixtures
     'devtools.debugger.remote-enabled' = $true
     'devtools.debugger.chrome-enabled' = $true
@@ -65,14 +69,14 @@ try {
     Write-Output "Test output: $runDirectory"
     $deadline = (Get-Date).AddSeconds(180)
     while ((Get-Date) -lt $deadline -and !(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $port -State Listen -ErrorAction SilentlyContinue)) { Start-Sleep -Milliseconds 500 }
-    & node (Join-Path $PSScriptRoot 'debugger-driver.cjs') $port (Join-Path $PSScriptRoot 'integration-bootstrap.js')
+    & node (Join-Path $PSScriptRoot 'debugger-driver.cjs') $port $driverPath
     if ($LASTEXITCODE -ne 0) { throw 'Could not start isolated test driver.' }
     while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $resultPath)) {
         $peakPrivateBytes = [Math]::Max($peakPrivateBytes,(Get-TestTreePrivateBytes))
         Start-Sleep -Milliseconds 500
     }
     if (!(Test-Path -LiteralPath $resultPath)) { throw "No test result; inspect $runDirectory" }
-    $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+    $result = Get-Content -LiteralPath $resultPath -Raw -Encoding utf8 | ConvertFrom-Json
     $result.measurements | Add-Member -NotePropertyName processTreePeakPrivateBytesSampled -NotePropertyValue $peakPrivateBytes
     $result.measurements | Add-Member -NotePropertyName nominalMemorySamplingIntervalMs -NotePropertyValue 500
     [System.IO.File]::WriteAllText($resultPath,($result | ConvertTo-Json -Depth 12),[System.Text.UTF8Encoding]::new($false))

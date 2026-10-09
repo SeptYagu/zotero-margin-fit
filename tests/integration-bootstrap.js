@@ -32,6 +32,8 @@ async function open(name,location) {
 }
 async function runTests() {
   try {
+    // UI readiness can precede the initial library load; importing during it races Zotero's item cache.
+    await Zotero.Libraries.get(Zotero.Libraries.userLibraryID).waitForDataLoad('item');
     const {AddonManager}=ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');
     const file=Cc['@mozilla.org/file/local;1'].createInstance(Ci.nsIFile);
     file.initWithPath(Services.prefs.getStringPref('marginfit.integrationXPI'));
@@ -40,6 +42,8 @@ async function runTests() {
     const addon=await AddonManager.getAddonByID(ID);
     check(addon?.isActive && addon.isCompatible,'XPI installs on Zotero '+Zotero.version);
     measurements.pluginVersion=addon.version;
+    check(addon.description.startsWith('Fit PDF content') && addon.description.includes('自动识别 PDF 白边'),
+      'Installed plugin description displays English before Chinese');
     Services.prefs.setBoolPref(PREF,true);
     const started=Date.now();
     const book=await open('asymmetric-book.pdf',{position:{pageIndex:7,rects:[[200,390,220,410]]}});
@@ -56,6 +60,10 @@ async function runTests() {
     measurements.firstSmartFitFromImportMs=Date.now()-started;
     measurements.l1DetectionMs=c.session.metrics.l1ElapsedMs;
     check(doc.querySelectorAll('[data-marginfit]').length===2,'Exactly two new controls; native Reset Zoom retained');
+    const heightButton=doc.querySelector('[data-marginfit="height"]'),detectButton=doc.querySelector('[data-marginfit="detect"]');
+    check(heightButton.title==='Fit Height / 适合高度' && heightButton.getAttribute('aria-label')===heightButton.title &&
+      detectButton.title==='Detect Margins: On / 识别边界：开启' && detectButton.getAttribute('aria-label')==='Detect Margins / 识别边界',
+      'Toolbar tooltips and accessible labels display English before Chinese');
     for (const name of ['height','detect']) {
       const button=doc.querySelector(`[data-marginfit="${name}"]`);
       check(reader._iframeWindow.getComputedStyle(button).getPropertyValue('-moz-window-dragging')==='no-drag',
@@ -100,6 +108,7 @@ async function runTests() {
     doc.querySelector('[data-marginfit="detect"]').click();
     await until(()=>!Services.prefs.getBoolPref(PREF,true) && doc.querySelector('[data-marginfit="detect"]').getAttribute('aria-pressed')==='false','detect button OFF');
     check(true,'Detect button click switches OFF and updates its visible pressed state');
+    check(detectButton.title==='Detect Margins: Off / 识别边界：关闭','OFF tooltip displays English before Chinese');
     ireader.zoomPageWidth();
     check(c.viewer.currentScaleValue==='page-width','Disabled native width restores page-width');
     await until(()=>doc.getElementById('zoomAuto').disabled,'native disabled state restored');
@@ -241,6 +250,10 @@ async function runTests() {
       const f=await open(name);await until(()=>f.c.session.cache.has(1),'fallback detector');
       lastReader=f.reader;
       check(f.c.session.cache.get(1).quality==='fallback',name+' safely falls back');
+      await until(()=>f.reader._iframeWindow.document.querySelector('[data-marginfit="detect"]').dataset.status==='fallback','fallback tooltip');
+      const tooltip=f.reader._iframeWindow.document.querySelector('[data-marginfit="detect"]').title;
+      check(tooltip.startsWith('Detect Margins: On — Uncertain page boundaries') && tooltip.includes(' / 识别边界：开启 — 无法可靠识别'),
+        name+' fallback tooltip displays English before Chinese');
     }
     const paperPath=PathUtils.join(Services.prefs.getStringPref('marginfit.integrationFixtures'),'attention-is-all-you-need.pdf');
     if(await IOUtils.exists(paperPath)) {

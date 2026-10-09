@@ -2,7 +2,9 @@
   "version": "10.0.6",
   "checks": [
     "XPI installs on Zotero 10.0.6",
+    "Installed plugin description displays English before Chinese",
     "Exactly two new controls; native Reset Zoom retained",
+    "Toolbar tooltips and accessible labels display English before Chinese",
     "height button opts out of native toolbar window dragging",
     "height button is reachable at its visible mouse target",
     "detect button opts out of native toolbar window dragging",
@@ -19,6 +21,7 @@
     "Added height button click uses detected content height",
     "Height fitting uses native PDF.js CSS units",
     "Detect button click switches OFF and updates its visible pressed state",
+    "OFF tooltip displays English before Chinese",
     "Disabled native width restores page-width",
     "Disabled callback restores native Reset Zoom disabled state",
     "Disabled native height restores page-fit",
@@ -55,7 +58,9 @@
     "Height fit keeps wide content horizontally scrollable",
     "Rotated page uses rotated viewport coordinates",
     "blank.pdf safely falls back",
+    "blank.pdf fallback tooltip displays English before Chinese",
     "dark-background.pdf safely falls back",
+    "dark-background.pdf fallback tooltip displays English before Chinese",
     "Public arXiv paper with text, formulas and figures detects reliably",
     "OFF-during-L1 regression starts while sampling is incomplete",
     "Switch OFF lets only the in-flight sample finish and starts no remaining L1 pages",
@@ -68,9 +73,9 @@
     "Uninstall removes diagnostic reference"
   ],
   "measurements": {
-    "pluginVersion": "0.1.1",
-    "firstSmartFitFromImportMs": 6541,
-    "l1DetectionMs": 1374,
+    "pluginVersion": "0.1.2",
+    "firstSmartFitFromImportMs": 5353,
+    "l1DetectionMs": 1103,
     "restoredReadingAnchor": {
       "before": 386.60618996798297,
       "after": 386.4973985431842
@@ -90,19 +95,19 @@
       ]
     },
     "detectorMs": [
-      236,
-      289,
-      378,
-      188,
-      130,
-      149,
-      98,
-      113,
-      178,
-      165
+      195,
+      200,
+      222,
+      177,
+      140,
+      166,
+      118,
+      171,
+      138,
+      120
     ],
     "temporaryRasterBytes": 1920000,
-    "twoCachedFitCommandsMs": 168,
+    "twoCachedFitCommandsMs": 174,
     "keyboard": {
       "key": "0",
       "code": "Digit0",
@@ -123,9 +128,9 @@
         506,
         743
       ],
-      "elapsedMs": 421
+      "elapsedMs": 195
     },
-    "processTreePeakPrivateBytesSampled": 1940987904,
+    "processTreePeakPrivateBytesSampled": 2055507968,
     "nominalMemorySamplingIntervalMs": 500
   },
   "passed": true

@@ -53,8 +53,8 @@ var MarginFitCore = (() => {
     return [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3],
       a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]];
   }
-  function textBox(content, viewport) {
-    let box = null;
+  function textBox(content, viewport, visit = null) {
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
     for (const item of content.items || []) {
       if (!item.str?.trim() || !item.transform) continue;
       const t = multiply(viewport.transform, item.transform);
@@ -64,18 +64,28 @@ var MarginFitCore = (() => {
       const style = content.styles?.[item.fontName] || {};
       const ascent = Number.isFinite(style.ascent) ? style.ascent : 1;
       const descent = Number.isFinite(style.descent) ? style.descent : -0.3;
-      // Baseline and font axis work for landscape/rotated text as well as pages.
+      // Preserve exactly the same four glyph-corner transforms, without arrays.
       const ux = t[0] / length, uy = t[1] / length;
       const vx = t[2] / h, vy = t[3] / h;
       const advance = Math.abs(item.width * viewport.scale);
-      const points = [];
-      for (const x of [0, advance]) for (const y of [descent*h, ascent*h])
-        points.push([t[4] + ux*x + vx*y, t[5] + uy*x + vy*y]);
-      box = union(box, [Math.min(...points.map(p => p[0])), Math.min(...points.map(p => p[1])),
-        Math.max(...points.map(p => p[0])), Math.max(...points.map(p => p[1]))]);
+      const ax = ux * advance, ay = uy * advance;
+      const dx = vx * (descent * h), dy = vy * (descent * h);
+      const bx = vx * (ascent * h), by = vy * (ascent * h);
+      const x0 = t[4] + dx, x1 = t[4] + dx + ax;
+      const x2 = t[4] + bx, x3 = t[4] + bx + ax;
+      const y0 = t[5] + dy, y1 = t[5] + dy + ay;
+      const y2 = t[5] + by, y3 = t[5] + by + ay;
+      const l = Math.min(x0,x1,x2,x3), r = Math.max(x0,x1,x2,x3);
+      const a = Math.min(y0,y1,y2,y3), b = Math.max(y0,y1,y2,y3);
+      if (l < left) left = l;
+      if (a < top) top = a;
+      if (r > right) right = r;
+      if (b > bottom) bottom = b;
+      // P1-C may gather a small set of edge candidates during this same pass.
+      if (visit) visit(item,l,a,r,b);
     }
-    return box && [clamp(box[0], 0, viewport.width), clamp(box[1], 0, viewport.height),
-      clamp(box[2], 0, viewport.width), clamp(box[3], 0, viewport.height)];
+    return left === Infinity ? null : [clamp(left,0,viewport.width), clamp(top,0,viewport.height),
+      clamp(right,0,viewport.width), clamp(bottom,0,viewport.height)];
   }
   // Deny by default: a single graphic/image/shading/unknown operation requires raster analysis.
   const TEXT_OPS = new Set(["dependency","save","restore","transform","beginText","endText",

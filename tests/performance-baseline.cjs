@@ -1,4 +1,25 @@
 const {performance}=require('node:perf_hooks'),C=require('../src/core.js');
+function legacy(content,viewport){
+ let box=null;
+ for(const item of content.items||[]){
+  if(!item.str?.trim()||!item.transform)continue;
+  const t=C.multiply(viewport.transform,item.transform);
+  const length=Math.hypot(t[0],t[1]),h=Math.hypot(t[2],t[3]);
+  if(!length||!h)continue;
+  const style=content.styles?.[item.fontName]||{};
+  const ascent=Number.isFinite(style.ascent)?style.ascent:1;
+  const descent=Number.isFinite(style.descent)?style.descent:-0.3;
+  const ux=t[0]/length,uy=t[1]/length,vx=t[2]/h,vy=t[3]/h;
+  const advance=Math.abs(item.width*viewport.scale);
+  const points=[];
+  for(const x of [0,advance])for(const y of [descent*h,ascent*h])
+    points.push([t[4]+ux*x+vx*y,t[5]+uy*x+vy*y]);
+  box=C.union(box,[Math.min(...points.map(p=>p[0])),Math.min(...points.map(p=>p[1])),
+    Math.max(...points.map(p=>p[0])),Math.max(...points.map(p=>p[1]))]);
+ }
+ return box && [C.clamp(box[0],0,viewport.width),C.clamp(box[1],0,viewport.height),
+  C.clamp(box[2],0,viewport.width),C.clamp(box[3],0,viewport.height)];
+}
 function scalarBox(content, viewport) {
  let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
  let found=false;
@@ -31,13 +52,13 @@ for(const n of [100,1000,10000]){
  styles:{F1:{ascent:0.83,descent:-0.18}}};
  for(const rotation of [0,90]){
  const vp={scale:1,transform: rotation===0?[1,0,0,-1,0,800]:[0,1,1,0,0,0],width:rotation?800:600,height:rotation?600:800};
- const old=C.textBox(content,vp),nw=scalarBox(content,vp);
+ const old=legacy(content,vp),nw=C.textBox(content,vp);
  if(old.some((x,i)=>Math.abs(x-nw[i])>1e-8)) throw Error('results differ:'+JSON.stringify({old,nw}));
  if(rotation)continue;
- for(let i=0;i<15;i++){C.textBox(content,vp);scalarBox(content,vp)}
+ for(let i=0;i<15;i++){legacy(content,vp);C.textBox(content,vp)}
  const reps=n>=10000?10:100;
  const measure=fn=>{const start=performance.now();for(let i=0;i<reps;i++)fn(content,vp);return +(performance.now()-start).toFixed(2)};
- const baseline=measure(C.textBox),opt=measure(scalarBox);
+ const baseline=measure(legacy),opt=measure(C.textBox);
  console.log(JSON.stringify({items:n,repeats:reps,oldMs:baseline,optimizedMs:opt,speedup: +(baseline/opt).toFixed(2),sameBounds:true}));
  }
 }

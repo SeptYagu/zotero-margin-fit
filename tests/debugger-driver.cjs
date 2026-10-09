@@ -12,7 +12,8 @@ function send(message) {
 function receive(predicate) {
   return new Promise((resolve, reject) => {
     const waiter = { predicate, resolve, reject };
-    waiter.timer = setTimeout(() => reject(new Error('Debugger response timed out')), 15000);
+    // Busy Zotero installations may need longer to initialize the debugger actor.
+    waiter.timer = setTimeout(() => reject(new Error('Debugger response timed out')), 60000);
     waiters.push(waiter);
   });
 }

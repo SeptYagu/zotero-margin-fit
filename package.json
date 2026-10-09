@@ -5,7 +5,7 @@
   "description": "Smart content fitting for the Zotero PDF reader",
   "license": "MIT",
   "scripts": {
-    "test": "node --test tests/core.test.cjs tests/controller.test.cjs tests/cache.test.cjs",
+    "test": "node --test tests/core.test.cjs tests/controller.test.cjs tests/cache.test.cjs tests/text-equivalence.test.cjs",
     "build": "node scripts/build.cjs",
     "update:feed": "node scripts/update-feed.cjs",
     "fixtures": "node tests/make-fixtures.cjs",

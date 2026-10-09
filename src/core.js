@@ -200,6 +200,45 @@ var MarginFitCore = (() => {
     // One raster pixel protects antialiasing at the low-resolution boundary.
     return { box: [Math.max(0,left-1), Math.max(0,top-1), Math.min(width,right+2), Math.min(height,bottom+2)], quality: "reliable" };
   }
+  // v0.1.6 S1: deterministic, diagonally staggered sampling. This estimates
+  // bounds only; unlike inkBox(), a non-hit cannot prove pixels are absent.
+  function sparseInkBox(image, stride = 4, phasePeriod = 16) {
+    const {width, height, data} = image;
+    if (!Number.isSafeInteger(stride) || stride < 2 || stride > 8 ||
+        !Number.isSafeInteger(phasePeriod) || phasePeriod < stride ||
+        !Number.isSafeInteger(width) || !Number.isSafeInteger(height) ||
+        width < 1 || height < 1 || !data || data.length < width*height*4)
+      return {box:null,quality:"fallback",reason:"invalid-input"};
+    const corners=[0,(width-1)*4,(height-1)*width*4,(height*width-1)*4];
+    if (corners.some(i => Math.min(data[i],data[i+1],data[i+2]) < 240))
+      return {box:null,quality:"fallback",reason:"background"};
+    const leftByRow=new Int32Array(height);
+    const rightByRow=new Int32Array(height);
+    const inkByRow=new Uint32Array(height);
+    leftByRow.fill(width); rightByRow.fill(-1);
+    let left=width,top=height,right=-1,bottom=-1,hits=0,visited=0;
+    for(let y=0;y<height;y++) {
+      const phase=(y + Math.floor(y/phasePeriod)) % stride;
+      for(let x=phase;x<width;x+=stride) {
+        visited++;
+        const i=(y*width+x)*4;
+        if(data[i+3]<=32 || Math.min(data[i],data[i+1],data[i+2])>=235)continue;
+        hits++;inkByRow[y]++;
+        if(x<leftByRow[y])leftByRow[y]=x;
+        rightByRow[y]=x;
+        if(x<left)left=x;
+        if(x>right)right=x;
+        if(y<top)top=y;
+        if(y>bottom)bottom=y;
+      }
+    }
+    if(right<0)return {box:null,quality:"fallback",reason:"blank-or-missed",visited,hits};
+    if(hits/visited>0.6)return {box:null,quality:"fallback",reason:"dense-background",visited,hits};
+    return {box:[Math.max(0,left-1),Math.max(0,top-1),
+      Math.min(width,right+2),Math.min(height,bottom+2)],
+      quality:"estimated",visited,hits,stride,phasePeriod,
+      leftByRow,rightByRow,inkByRow};
+  }
   function scaleDecision(record, mode, viewport, actual, anchor, explicit = false) {
     const safe = safeBox(record.raw, record.width, record.height);
     const available = mode === "height" ? viewport.height : viewport.width;
@@ -321,6 +360,6 @@ var MarginFitCore = (() => {
   }
   return { VERSION, SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,
     parityModels, prediction, multiply, textBox, textAndFolio, folioPattern, fitPageRecord,
-    isTextOnlyOps, inkBox, scaleDecision, primaryPage, hook, Session };
+    isTextOnlyOps, inkBox, sparseInkBox, scaleDecision, primaryPage, hook, Session };
 })();
 if (typeof module !== "undefined") module.exports = MarginFitCore;

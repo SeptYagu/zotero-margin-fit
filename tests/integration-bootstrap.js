@@ -102,7 +102,7 @@ async function runTests() {
     doc.querySelector('[data-marginfit="height"]').click();
     await until(()=>c.mode==='height' && c.metrics.writes.slice(heightBefore).some(w=>w.type==='position' && w.explicit),'height button click');
     check(c.mode==='height','Added height button click uses detected content height');
-    const safeHeight=even.raw[3]-even.raw[1]+16;
+    const safeHeight=even.raw[3]-even.raw[1]+32; // v0.1.6: 16 PDF units per edge
     const unit=c.viewer.getPageView(7).viewport.scale/c.viewer.currentScale;
     check(Math.abs(c.viewer.currentScale-(c.container.clientHeight-16)/(safeHeight*unit))<0.03,'Height fitting uses native PDF.js CSS units');
     doc.querySelector('[data-marginfit="detect"]').click();

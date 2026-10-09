@@ -92,7 +92,10 @@ var MarginFitCore = (() => {
   function textAndFolio(content, viewport) {
     let bodyLeft=Infinity,bodyTop=Infinity,bodyRight=-Infinity,bodyBottom=-Infinity;
     let candidate = null, candidates = 0;
+    let centerText = null;
     const all = textBox(content, viewport, (item,l,t,r,b) => {
+      if (t >= viewport.height*.105 && b <= viewport.height*.885)
+        centerText = union(centerText,[l,t,r,b]);
       const text = item.str.trim();
       const h = viewport.height, w = viewport.width;
       const upper = t >= 0 && b < h * .105;
@@ -121,13 +124,13 @@ var MarginFitCore = (() => {
         if(b>bodyBottom)bodyBottom=b;
       }
     });
-    if (!all || bodyLeft===Infinity || candidates !== 1 || !candidate) return {all,folio:null};
+    if (!all || bodyLeft===Infinity || candidates !== 1 || !candidate) return {all,folio:null,centerText};
     const body=[bodyLeft,bodyTop,bodyRight,bodyBottom];
     const b = candidate.box;
     const gap = candidate.edge === 'top' ? body[1]-b[3] : b[1]-body[3];
     // A freestanding number requires whitespace from every other text glyph.
-    if (gap < Math.max(12,viewport.height*.025)) return {all,folio:null};
-    return {all,folio:{...candidate,body}};
+    if (gap < Math.max(12,viewport.height*.025)) return {all,folio:null,centerText};
+    return {all,folio:{...candidate,body},centerText};
   }
   function folioPattern(pages, cache) {
     const votes=new Map();

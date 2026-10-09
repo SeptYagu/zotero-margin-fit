@@ -329,13 +329,33 @@ var MarginFitRuntime = (() => {
       const pixels = context.getImageData(0,0,canvas.width,canvas.height);
       // Copy once into the chrome realm instead of paying cross-compartment costs per pixel.
       const rgba = Components.utils.cloneInto(pixels.data,{});
-      const ink = C.inkBox({ width: pixels.width, height: pixels.height, data: rgba });
+      // One render and one RGBA transfer, then sample ~25% of pixels.
+      // Low-confidence raster classes fall back to the original exact scan.
+      let ink = C.sparseInkBox({ width: pixels.width, height: pixels.height, data: rgba });
+      const estimated = ink.quality === "estimated";
+      const body = estimated ? C.sparseBodyWidth(ink,pixels.width,pixels.height) : null;
+      if (!estimated) ink = C.inkBox({width:pixels.width,height:pixels.height,data:rgba});
       const raster = ink.box?.map(n => n/factor);
       const merged = C.union(text,raster);
-      const raw = ink.quality === "reliable" ? [C.clamp(merged[0],0,viewport.width),C.clamp(merged[1],0,viewport.height),
-        C.clamp(merged[2],0,viewport.width),C.clamp(merged[3],0,viewport.height)] : [0,0,viewport.width,viewport.height];
-      return { raw, width: viewport.width, height: viewport.height, rotation: viewport.rotation,
-        quality: ink.quality, reason: ink.reason, version: C.VERSION, viewerRotation, revision: app.pdfDocument.fingerprints?.join(":"), elapsedMs: Date.now()-start,
+      const quality = ink.quality === "estimated" ? "reliable" : ink.quality;
+      const raw = quality === "reliable" && merged
+        ? [C.clamp(merged[0],0,viewport.width),C.clamp(merged[1],0,viewport.height),
+          C.clamp(merged[2],0,viewport.width),C.clamp(merged[3],0,viewport.height)]
+        : [0,0,viewport.width,viewport.height];
+      let widthFitRaw;
+      if (body?.box && quality === "reliable") {
+        const bodyPixels = body.box.map(n => n/factor);
+        const central = folioAnalysis.centerText;
+        const contentBox = C.union(bodyPixels,central);
+        if (contentBox && contentBox[2]-contentBox[0] < raw[2]-raw[0]) {
+          widthFitRaw=[C.clamp(contentBox[0],0,viewport.width),raw[1],
+            C.clamp(contentBox[2],0,viewport.width),raw[3]];
+        }
+      }
+      return { raw, widthFitRaw, width: viewport.width, height: viewport.height, rotation: viewport.rotation,
+        quality, boundsKind: estimated ? "estimated" : "verified", samplingRate: estimated ? ink.visited/(pixels.width*pixels.height) : 1,
+        boundaryConfidence: body?.confidence || 0, reason: ink.reason, version: C.VERSION, viewerRotation,
+        revision: app.pdfDocument.fingerprints?.join(":"), elapsedMs: Date.now()-start,
         rasterBytes: canvas.width*canvas.height*4, copiedRasterBytes: rgba.byteLength };
     } catch (error) {
       return { raw: [0,0,viewport.width,viewport.height], width: viewport.width, height: viewport.height,

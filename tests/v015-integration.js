@@ -66,9 +66,26 @@ async function run(){
   numbered.c.session.folioPattern=null;
   await numbered.c.request('height');
   const fullScale=numbered.c.viewer.currentScale;
-  assert(folioScale>fullScale*1.1,
-    'actual native PDF.js Fit Height is tighter when page number is excluded');
+  assert(Math.abs(folioScale/fullScale-1)<.05, // viewport layout and scrollbars can change
+    'v0.1.6 retains the numbered footer in native Height Fit: '+folioScale+' vs '+fullScale);
   numbered.c.session.folioPattern=folioModel;
+  const synthetic=await open('mixed-folio-score.pdf');
+  await until(()=>synthetic.c.session.cache.has(5),'mixed music-book L1');
+  const mr=await synthetic.c.session.serial(()=>synthetic.c.session.read(5,0));
+  assert(mr.boundsKind==='estimated' && mr.samplingRate<=.255,
+    'music-theory surrogate uses one-in-four diagonal sampling');
+  assert(mr.widthFitRaw && mr.widthFitRaw[0]>mr.raw[0]+25 &&
+    mr.widthFitRaw[3]===mr.raw[3],
+    'mixed page removes isolated left footer from width only, preserves chapter/footer height');
+  synthetic.c.viewer.currentPageNumber=5;
+  await synthetic.c.request('width');
+  const widthScale=synthetic.c.viewer.currentScale;
+  const backup=mr.widthFitRaw;
+  delete mr.widthFitRaw;
+  await synthetic.c.request('width');
+  assert(widthScale>synthetic.c.viewer.currentScale*1.08,
+    'true Zotero width fit enlarges staff body after excluding isolated left folio');
+  mr.widthFitRaw=backup;
   const years=await open('edge-year.pdf');
   await until(()=>years.c.session.models,'constant year L1');
   assert(years.c.session.folioPattern===null,'constant footer year is not excluded');

@@ -44,6 +44,19 @@ for(let p=1;p<=24;p++){
   folioBook.push({content:body+`BT /F1 9 Tf 285 32 Td (${p}) Tj ET`});
   edgeYear.push({content:body+'BT /F1 9 Tf 285 32 Td (2026) Tj ET'});
 }
+// Synthetic music-theory layout: wide staff body, isolated lower-left folio,
+// Chapter 4 running footer. Surrogate, not the user's original book PDF.
+const musicBook=[];
+for(let p=1;p<=24;p++){
+ let content='0 g 0 G 1 w\n';
+ for(let row=0;row<7;row++)
+   content+=`BT /F1 11 Tf 115 ${680-row*19} Td (Explanatory text accompanying a musical example.) Tj ET\n`;
+ for(const y of [440,430,420,410,400,340,330,320,310,300])
+   content+=`115 ${y} m 455 ${y} l S\n`;
+ content+=`BT /F1 9 Tf 32 28 Td (${p+75}) Tj ET\nBT /F1 9 Tf 238 28 Td (Chapter 4) Tj ET\n`;
+ musicBook.push({content});
+}
+pdf('mixed-folio-score.pdf',musicBook);
 pdf('pure-folio.pdf',folioBook);
 pdf('edge-year.pdf',edgeYear);
 // Distinct initial bytes keep OFF-during-L1 regression cold despite the new disk cache.

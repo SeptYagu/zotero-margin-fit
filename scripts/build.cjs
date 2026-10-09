@@ -4,7 +4,7 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const root = path.resolve(__dirname,'..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
-const names = ['manifest.json','bootstrap.js','src/core.js','src/runtime.js','LICENSE'];
+const names = ['manifest.json','bootstrap.js','src/core.js','src/persistent-cache.js','src/runtime.js','LICENSE'];
 function crc32(bytes) {
   let crc = 0xffffffff;
   for (const b of bytes) {

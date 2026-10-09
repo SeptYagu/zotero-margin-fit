@@ -36,6 +36,8 @@ for(let p=1;p<=24;p++) {
   book.push({content});
 }
 pdf('asymmetric-book.pdf',book);
+// Distinct initial bytes keep OFF-during-L1 regression cold despite the new disk cache.
+pdf('asymmetric-book-pause.pdf',book.map(d=>({content:d.content.replace('MarginFit generated','PauseCase generated')})));
 const w=600,h=800,data=Buffer.alloc(w*h*3,255);
 function rect(x,y,ww,hh) {for(let j=y;j<y+hh;j++)for(let i=x;i<x+ww;i++){const k=(j*w+i)*3;data[k]=data[k+1]=data[k+2]=20;}}
 for(let row=0;row<22;row++)for(let col=0;col<45;col++){
@@ -47,6 +49,7 @@ pdf('rotated.pdf',[{...book[0],rotate:90}]);
 pdf('blank.pdf',[{content:''}]);
 pdf('dark-background.pdf',[{content:'0.2 0.2 0.2 rg 0 0 600 800 re f'}]);
 pdf('wide-figure.pdf',[{content:'0 g 30 350 540 100 re f BT /F1 10 Tf 30 465 Td (Wide figure: height mode must permit horizontal scrolling.) Tj ET'}]);
+pdf('pure-text.pdf',Array.from({length:12},(_,i)=>({content:`0 g BT /F1 12 Tf 80 680 Td (Pure text page ${i+1} no graphics.) Tj ET BT /F1 10 Tf 80 600 Td (This body contains only ordinary PDF text.) Tj ET`})));
 fs.writeFileSync(path.join(out,'truth.json'),JSON.stringify({
   book:{odd:[150,138,450,652],even:[60,138,360,652],tolerance:4},
   scan:{raw:[95,120,408,678],tolerance:3},rotated:true,blank:'fallback',dark:'fallback'

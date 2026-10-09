@@ -1,7 +1,7 @@
 /* Shared pure geometry and serial detection scheduler; no Zotero dependency. */
 "use strict";
 var MarginFitCore = (() => {
-  const VERSION = 1;
+  const VERSION = 2; // New strict operator-list fast path and persistent cache schema.
   // PDF.js scale=1 viewport units (1/72 inch), applied only at display time.
   const SAFETY = 8;
   const IDLE_MS = 500;
@@ -77,6 +77,26 @@ var MarginFitCore = (() => {
     return box && [clamp(box[0], 0, viewport.width), clamp(box[1], 0, viewport.height),
       clamp(box[2], 0, viewport.width), clamp(box[3], 0, viewport.height)];
   }
+  // Deny by default: a single graphic/image/shading/unknown operation requires raster analysis.
+  const TEXT_OPS = new Set(["dependency","save","restore","transform","beginText","endText",
+    "setFont","setCharSpacing","setWordSpacing","setHScale","setLeading","setTextRise",
+    "moveText","setLeadingMoveText","setTextMatrix","nextLine","showText",
+    "showSpacedText","nextLineShowText","nextLineSetSpacingShowText",
+    "setFillRGBColor","setFillGray","setFillCMYKColor","setFillColor","setFillColorN",
+    "setFillColorSpace","setStrokeRGBColor","setStrokeGray"]);
+  function isTextOnlyOps(list, ops, box) {
+    if (!ops || !list?.fnArray?.length || !box || !box.every(Number.isFinite) ||
+        box[2]-box[0] < 2 || box[3]-box[1] < 2) return false;
+    const safeCodes = new Set([...TEXT_OPS].map(n => ops[n]).filter(Number.isInteger));
+    const showCodes = new Set([ops.showText,ops.showSpacedText,ops.nextLineShowText,
+      ops.nextLineSetSpacingShowText].filter(Number.isInteger));
+    let glyphs = 0;
+    for (const op of list.fnArray) {
+      if (!safeCodes.has(op)) return false;
+      if (showCodes.has(op)) glyphs++;
+    }
+    return glyphs > 0;
+  }
   function inkBox(image) {
     const { width, height, data } = image;
     // Dirty/dark borders are ambiguous; never interpret them as removable white margins.
@@ -128,10 +148,14 @@ var MarginFitCore = (() => {
     };
   }
   class Session {
-    constructor(count, detect) {
+    constructor(count, detect, store = null) {
       this.count = count;
       this.detect = detect;
       this.cache = new Map();
+      this.store = store;
+      this.ready = store ? store.load().then(saved => {
+        if (!this.closed) for (const [p,r] of saved) this.cache.set(p,r);
+      }).catch(()=>{}) : Promise.resolve();
       this.models = null;
       this.l1Promise = null;
       this.tail = Promise.resolve();
@@ -157,6 +181,7 @@ var MarginFitCore = (() => {
       return false;
     }
     async read(p, rotation) {
+      await this.ready;
       const prior = this.cache.get(p);
       if (prior && (rotation === undefined || prior.rotation === rotation)) {
         this.metrics.cacheHits++;
@@ -170,6 +195,7 @@ var MarginFitCore = (() => {
         if (!this.closed) {
           this.cache.set(p, value);
           this.metrics.analyzed.push(p);
+          this.store?.schedule(this.cache);
         }
         return value;
       } finally { this.metrics.active--; }
@@ -177,6 +203,7 @@ var MarginFitCore = (() => {
     l1() {
       if (this.closed || this.paused) return Promise.resolve(null);
       if (!this.l1Promise) this.l1Promise = this.serial(async () => {
+        await this.ready;
         const started = Date.now();
         const pages = samples(this.count);
         for (const p of pages) {
@@ -208,9 +235,9 @@ var MarginFitCore = (() => {
         });
       }
     }
-    close() { this.closed = true; this.cache.clear(); }
+    close() { this.closed = true; this.store?.close(this.cache); this.cache.clear(); }
   }
   return { VERSION, SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,
-    parityModels, prediction, multiply, textBox, inkBox, scaleDecision, primaryPage, hook, Session };
+    parityModels, prediction, multiply, textBox, isTextOnlyOps, inkBox, scaleDecision, primaryPage, hook, Session };
 })();
 if (typeof module !== "undefined") module.exports = MarginFitCore;

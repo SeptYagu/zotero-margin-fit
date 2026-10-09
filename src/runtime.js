@@ -281,6 +281,23 @@ var MarginFitRuntime = (() => {
     try {
       const content = unwrap(await page.getTextContent());
       const text = C.textBox(content,viewport);
+      // A strict PDF.js operator allowlist forbids graphics, scans and unknown paint ops.
+      // Only then can the cheap text geometry replace offscreen rasterization.
+      if (text) {
+        try {
+          const ops = unwrap(win.pdfjsLib)?.OPS || unwrap(app.pdfjsLib)?.OPS;
+          const instructions = unwrap(await page.getOperatorList());
+          if (C.isTextOnlyOps(instructions,ops,text)) {
+            // Annotation appearances may extend beyond text; a non-empty list is unsafe
+            // for a text-only crop, even when the underlying page operations are text.
+            const annotations=unwrap(await page.getAnnotations(into(win,{intent:'display'})));
+            if (Array.isArray(annotations) && annotations.length === 0)
+              return {raw:text,width:viewport.width,height:viewport.height,rotation:viewport.rotation,
+                viewerRotation,quality:'reliable',version:C.VERSION,fastPath:true,
+                revision:app.pdfDocument.fingerprints?.join(':'),elapsedMs:Date.now()-start,rasterBytes:0};
+          }
+        } catch (_) { /* No reliable operator list: use the existing raster detector. */ }
+      }
       const factor = Math.min(1, 800 / Math.max(viewport.width,viewport.height));
       const low = unwrap(viewport.clone(into(win,{ scale: factor })));
       canvas = win.document.createElement("canvas");
@@ -308,8 +325,18 @@ var MarginFitRuntime = (() => {
     } finally { if (canvas) { canvas.width = 0; canvas.height = 0; } }
   }
   class Plugin {
-    constructor({ Zotero, Services, timers }) {
+    constructor({ Zotero, Services, timers, cacheModule }) {
       this.Zotero = Zotero; this.Services = Services; this.timers = timers;
+      this.cacheModule = cacheModule;
+      this.cacheIO = null;
+      try {
+        // IOUtils/PathUtils are privileged window globals on Zotero 10, not
+        // guaranteed to be exported by a resource://gre/modules ESM.
+        const chromeWindow = Zotero.getMainWindows()[0];
+        const IOUtils = chromeWindow?.IOUtils;
+        const PathUtils = chromeWindow?.PathUtils;
+        if (IOUtils && PathUtils) this.cacheIO = { IOUtils, PathUtils };
+      } catch (_) { /* Keep the plugin functional if profile cache APIs are unavailable. */ }
       this.controllers = new Map(); this.sessions = new Map(); this.toolbars = new Map();
       this.pending = new Set(); this.active = false;
       this.render = event => this.toolbar(event);
@@ -378,7 +405,29 @@ var MarginFitRuntime = (() => {
         const key = app.pdfDocument;
         let session = this.sessions.get(key);
         if (!session) {
-          session = new C.Session(app.pdfDocument.numPages, (p,r) => detect(app,view._iframeWindow,p,r));
+          let store = null;
+          if (this.cacheIO && this.cacheModule) {
+            const {IOUtils,PathUtils}=this.cacheIO;
+            let fileStamp=null;
+            try {
+              const reader=this.Zotero.Reader._readers.find(r =>
+                [r._internalReader?._primaryView,r._internalReader?._secondaryView].includes(view));
+              const itemID=reader?._itemID ?? reader?.itemID;
+              if (Number.isSafeInteger(itemID)) {
+                const filePath=await this.Zotero.Items.get(itemID)?.getFilePathAsync?.();
+                if (filePath) {
+                  const stat=await IOUtils.stat(filePath);
+                  if (Number.isSafeInteger(stat.size) && Number.isFinite(stat.lastModified) && stat.lastModified >= 0)
+                    fileStamp=stat.size+'-'+Math.floor(stat.lastModified);
+                }
+              }
+            } catch (_) { /* Non-file readers can fall back to the PDF fingerprint. */ }
+            if (!this.active || view._destroyed || app.pdfDocument !== key) return;
+            store = new this.cacheModule.Store({io:IOUtils,path:PathUtils,timers:this.timers,
+              fingerprints:app.pdfDocument.fingerprints,count:app.pdfDocument.numPages,
+              fileStamp,version:C.VERSION});
+          }
+          session = new C.Session(app.pdfDocument.numPages, (p,r) => detect(app,view._iframeWindow,p,r),store);
           this.sessions.set(key,session);
         }
         this.controllers.set(view,new Controller(view,session,this));

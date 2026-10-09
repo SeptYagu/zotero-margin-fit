@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4 — Unreleased (2026-10-08)
+
+- Strict pure-text fast path: inspect PDF.js operator lists and bypass secondary offscreen rasterization only on confidently text-only pages. Pages with images, vector paths, unsupported operations or ambiguous bounds keep the existing conservative raster detector.
+- Persist validated absolute content boundaries as compact per-PDF JSON under the Zotero profile, keyed by PDF fingerprints, page count, file size/modified timestamp when accessible, and detection algorithm version.
+- Reopening a previously scanned PDF reuses six L1 samples and individually cached page boundaries without PDF re-rendering. Cache never stores PDF contents or images and can be safely deleted.
+- Added cache schema/invalidation, pure text/vector/scan and reopened-document regression checks.
+
+- 严格限定的纯文字页可跳过第二次画布渲染；扫描、图形及不确定页面继续保守识别。新增本地持久化边界缓存，再次打开同一 PDF 可跳过已分析页面；文件变更或算法升级后缓存失效。
+
 ## 0.1.3 — 2026-10-08
 
 - Performance: coalesce duplicate scroll input events into a 75 ms visible-page geometry update, while invalidating obsolete work immediately.

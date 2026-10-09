@@ -266,7 +266,7 @@ async function runTests() {
       measurements.publicPaper={source:'https://arxiv.org/pdf/1706.03762',pages:paper.c.app.pdfDocument.numPages,
         raw:detected.raw,elapsedMs:detected.elapsedMs};
     }
-    const paused=await open('asymmetric-book.pdf',{pageIndex:12});
+    const paused=await open('asymmetric-book-pause.pdf',{pageIndex:12});
     lastReader=paused.reader;
     const pausedDoc=paused.reader._iframeWindow.document;
     const analyzedBeforeOFF=paused.c.session.metrics.analyzed.length;

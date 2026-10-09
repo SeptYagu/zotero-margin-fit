@@ -1,4 +1,4 @@
-param([string]$ZoteroPath = 'C:\Program Files\Zotero\zotero.exe', [string]$DriverScript = 'integration-bootstrap.js')
+param([string]$ZoteroPath = 'C:\Program Files\Zotero\zotero.exe', [string]$DriverScript = 'integration-bootstrap.js', [switch]$Windowed)
 $ErrorActionPreference = 'Stop'
 $projectPath = Split-Path $PSScriptRoot -Parent
 $driverPath = Join-Path $PSScriptRoot $DriverScript
@@ -64,13 +64,20 @@ function Get-TestTreePrivateBytes {
     return $sum
 }
 try {
-    $env:MOZ_HEADLESS = '1'
+    if ($Windowed) { Remove-Item Env:MOZ_HEADLESS -ErrorAction SilentlyContinue }
+    else { $env:MOZ_HEADLESS = '1' }
     $process = Start-Process -FilePath $ZoteroPath -ArgumentList @('-no-remote', '-profile', ('"' + $profileDirectory + '"'), '-chrome', 'chrome://zotero/content/zoteroPane.xhtml', '-ZoteroDebugText', '-ZoteroSkipBundledFiles', '-debugger') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $runDirectory 'stdout.log') -RedirectStandardError (Join-Path $runDirectory 'stderr.log')
     Write-Output "Test output: $runDirectory"
     $deadline = (Get-Date).AddSeconds(180)
     while ((Get-Date) -lt $deadline -and !(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $port -State Listen -ErrorAction SilentlyContinue)) { Start-Sleep -Milliseconds 500 }
     & node (Join-Path $PSScriptRoot 'debugger-driver.cjs') $port $driverPath
-    if ($LASTEXITCODE -ne 0) { throw 'Could not start isolated test driver.' }
+    $driverExit = $LASTEXITCODE
+    # On a busy machine Firefox may execute evaluateJSAsync and finish the tests
+    # while the debugger reply itself times out. The independent result file is
+    # authoritative; only fail if it never arrives or reports failed checks.
+    if ($driverExit -ne 0) {
+        Write-Warning 'Debugger handshake failed; waiting for the isolated test result.'
+    }
     while ((Get-Date) -lt $deadline -and !(Test-Path -LiteralPath $resultPath)) {
         $peakPrivateBytes = [Math]::Max($peakPrivateBytes,(Get-TestTreePrivateBytes))
         Start-Sleep -Milliseconds 500

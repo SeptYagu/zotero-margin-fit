@@ -147,17 +147,33 @@ test('OFF scroll path does not inspect visible-page geometry',async()=>{
   f.controller.close();
 });
 
-test('trailing scroll debounce avoids page geometry during continuous input',async()=>{
+test('trailing scroll debounce avoids page geometry during continuous input',()=>{
  const f=setup();f.enable();
+ // Virtual clock avoids host scheduling delays making synthetic input look idle.
+ let now=0,nextId=0;
+ const timers=new Map();
+ f.host.setTimeout=(fn,ms)=>{
+   const id=++nextId;timers.set(id,{at:now+ms,fn});return id;
+ };
+ f.host.clearTimeout=id=>timers.delete(id);
+ const advance=ms=>{
+   const end=now+ms;
+   while(true){
+     const next=[...timers].sort((a,b)=>a[1].at-b[1].at)[0];
+     if(!next||next[1].at>end)break;
+     now=next[1].at;timers.delete(next[0]);next[1].fn();
+   }
+   now=end;
+ };
  let calls=0;
  const old=f.controller.page.bind(f.controller);
  f.controller.page=(...args)=>{calls++;return old(...args)};
  for(let n=0;n<12;n++) {
    f.controller.input();
-   await new Promise(r=>setTimeout(r,19));
+   advance(19);
+   assert.equal(calls,0,'no geometry reads while input continues');
  }
- assert.equal(calls,0,'no synchronous or timed geometry reads while scrolling');
- await new Promise(r=>setTimeout(r,110));
- assert.equal(calls,1,'one primary-page read after the last input');
+ advance(180);
+ assert.equal(calls,1,'one primary-page read once input stops');
  f.controller.close();
 });

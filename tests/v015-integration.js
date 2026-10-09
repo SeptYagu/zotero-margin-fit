@@ -57,6 +57,18 @@ async function run(){
   const nr=await numbered.c.session.serial(()=>numbered.c.session.read(8,0));
   assert(nr.folio && nr.folio.body[3]<nr.raw[3],
     'high-confidence folio has a separately preserved body fitting box');
+  const folioTarget=numbered.c.page();
+  const folioExact=await numbered.c.session.serial(()=>numbered.c.session.read(folioTarget,0));
+  assert(folioExact.folio?.ordinal===folioTarget,'current page folio is exact and matches sequence');
+  await numbered.c.request('height');
+  const folioScale=numbered.c.viewer.currentScale;
+  const folioModel=numbered.c.session.folioPattern;
+  numbered.c.session.folioPattern=null;
+  await numbered.c.request('height');
+  const fullScale=numbered.c.viewer.currentScale;
+  assert(folioScale>fullScale*1.1,
+    'actual native PDF.js Fit Height is tighter when page number is excluded');
+  numbered.c.session.folioPattern=folioModel;
   const years=await open('edge-year.pdf');
   await until(()=>years.c.session.models,'constant year L1');
   assert(years.c.session.folioPattern===null,'constant footer year is not excluded');

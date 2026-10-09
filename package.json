@@ -9,9 +9,9 @@
     "build": "node scripts/build.cjs",
     "update:feed": "node scripts/update-feed.cjs",
     "fixtures": "node tests/make-fixtures.cjs",
-    "test:integration": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1",
-    "test:cache": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -DriverScript v014-integration.js",
-    "test:update": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -DriverScript update-bootstrap.js"
+    "test:integration": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed",
+    "test:cache": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript v015-integration.js",
+    "test:update": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript update-bootstrap.js"
   },
   "engines": { "node": ">=20" }
 }

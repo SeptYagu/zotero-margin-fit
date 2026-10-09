@@ -105,17 +105,30 @@ var MarginFitRuntime = (() => {
       // pending work immediately, but only inspect page geometry once per short window.
       if (!this.host.enabled()) return;
       this.session.noteActivity?.(this.lastInput);
-      // Trailing debounce: while the user keeps scrolling, calculate no DOM
-      // geometry at all. One final page check occurs 75 ms after the last input.
-      if (this.inputFlushTimer) this.host.clearTimeout(this.inputFlushTimer);
-      this.inputFlushTimer = this.host.setTimeout(() => {
+      // One inexpensive timer for a whole wheel/scroll burst. Avoid cancelling
+      // and allocating a timer for every single input event.
+      if (this.inputFlushTimer) return;
+      const schedule = token => {
+        // Capture the event epoch when scheduling, not when the timer fires.
+        this.inputFlushTimer = this.host.setTimeout(() => flush(token), 75);
+      };
+      const flush = token => {
+        if (this.closed || !this.host.enabled()) {
+          this.inputFlushTimer = null;
+          return;
+        }
+        if (token !== this.epoch) {
+          // Input happened during this window; wait another quiet window.
+          schedule(this.epoch);
+          return;
+        }
         this.inputFlushTimer = null;
-        if (this.closed || !this.host.enabled()) return;
         const p = this.page();
         if (p !== this.lastPage) this.manual = false;
         this.lastPage = p;
         this.arm();
-      }, 75);
+      };
+      schedule(this.epoch);
     }
     arm() {
       this.cancelTimer();

@@ -177,3 +177,15 @@ test('trailing scroll debounce avoids page geometry during continuous input',()=
  assert.equal(calls,1,'one primary-page read once input stops');
  f.controller.close();
 });
+
+test('horizontal fit diagnostics retain actual left/right space and scroll clamp evidence',async()=>{
+  const f=setup();f.enable();
+  await f.controller.apply(f.record,1,0,true);
+  const g=f.controller.metrics.lastHorizontalFit;
+  assert.ok(g && Number.isFinite(g.leftMargin) && Number.isFinite(g.rightMargin));
+  assert.ok(Number.isFinite(g.delta));
+  assert.ok(Math.abs(g.delta-(g.leftMargin-g.rightMargin))<1e-7);
+  assert.equal(g.fittingSource,'full');
+  assert.ok(g.actualScrollLeft>=0);
+  f.controller.close();
+});

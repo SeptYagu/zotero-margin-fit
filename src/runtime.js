@@ -252,6 +252,17 @@ var MarginFitRuntime = (() => {
         const top = this.container.scrollTop + r.top-root.top;
         const x = left + (box[0]+box[2])*scale/2 - this.container.clientWidth/2;
         this.container.scrollLeft = Math.max(0,x);
+        // Capture actual, not assumed, visible margins. Browser scroll clamping,
+        // intrinsic PDF.js page centering and scrollbar changes can make them unequal.
+        const afterHorizontal = page.div.getBoundingClientRect();
+        const actualLeft = afterHorizontal.left-root.left + box[0]*scale;
+        const actualRight = root.right-afterHorizontal.left-box[2]*scale;
+        this.metrics.lastHorizontalFit = {
+          page:p,mode:this.mode,requestedScrollLeft:x,actualScrollLeft:this.container.scrollLeft,
+          maxScrollLeft:Math.max(0,this.container.scrollWidth-this.container.clientWidth),
+          leftMargin:actualLeft,rightMargin:actualRight,delta:actualLeft-actualRight,
+          widthBounds:[box[0],box[2]],fittingSource:Array.isArray(fitting.widthFitRaw)?"body":"full"
+        };
         // At unchanged scale leave scrollTop completely untouched (including subpixel rounding).
         // Only an explicit fit aligns content; automatic zoom compensates to retain the reading anchor.
         if (explicit || scaled) {
@@ -385,7 +396,7 @@ var MarginFitRuntime = (() => {
     }
     enabled() { return this.Services.prefs.getBoolPref(PREF, true); }
     mode() { return this.Services.prefs.getStringPref(MODE, "width") === "height" ? "height" : "width"; }
-    setMode(mode) { this.Services.prefs.setStringPref(MODE, mode); }
+    setMode(mode) { this.Services.prefs.setStringPref(MODE, mode); this.updateButtons(); }
     now() { return Date.now(); }
     setTimeout(fn,ms) { return this.timers.setTimeout(fn,ms); }
     clearTimeout(timer) { if (timer) this.timers.clearTimeout(timer); }
@@ -414,8 +425,12 @@ var MarginFitRuntime = (() => {
           }
           if (!this.controllers.has(view) && !this.pending.has(view)) this.attach(view);
         }
-        if (!this.toolbars.has(reader) && reader._iframeWindow?.document)
-          this.toolbar({ reader, doc: reader._iframeWindow.document });
+        if (reader._iframeWindow?.document) {
+          const doc = reader._iframeWindow.document;
+          const bar = this.toolbars.get(reader);
+          if (bar?.isConnected && bar.ownerDocument === doc) this.positionToolbar(doc, bar);
+          else this.toolbar({ reader, doc });
+        }
         } catch (_) { /* A detached window can be destroyed between discovery ticks. */ }
       }
       for (const [view,c] of this.controllers) if (c.closed || !live.has(view) || !alive(view) || !alive(c.app)) {
@@ -475,24 +490,52 @@ var MarginFitRuntime = (() => {
     strings() {
       return { height: "Fit Height / 适合高度", detect: "Detect Margins / 识别边界" };
     }
-    detectTitle(fallback = false) {
+    detectTitle(fallback = false, reason = "") {
       const state = this.enabled() ? ["On", "开启"] : ["Off", "关闭"];
+      const labels = {
+        background:["dark/nonwhite page edges","页面边缘非白色"],
+        blank:["blank/unrecognized page","空白或无法识别"],
+        "dense-background":["dense graphic or background","墨迹过密或背景复杂"],
+        "render-failed":["page rendering failed","页面渲染失败"],
+        unreliable:["insufficient geometry confidence","边界置信度不足"]
+      };
+      const detail = labels[reason] || (reason ? [reason,"边界不确定"] : null);
       return `Detect Margins: ${state[0]}${fallback ? " — Uncertain page boundaries; keeping the current view" : ""}` +
-        ` / 识别边界：${state[1]}${fallback ? " — 无法可靠识别，保留当前视图" : ""}`;
+        ` / 识别边界：${state[1]}${fallback ? " — 无法可靠识别，保留当前视图" : ""}` +
+        (fallback && detail ? ` (${detail[0]} / ${detail[1]})` : "");
+    }
+    positionToolbar(doc,bar,append) {
+      // Zotero's renderToolbar append callback targets the right-hand section.
+      // Keep our controls immediately after native Reset Zoom in the left section,
+      // including when Zotero re-renders the toolbar after initial construction.
+      const zoom = doc.getElementById("zoomAuto");
+      const nativeZoom = doc.getElementById("zoomIn") || zoom;
+      const nativeColor = nativeZoom && doc.defaultView?.getComputedStyle(nativeZoom).color;
+      if (nativeColor && bar.style.color !== nativeColor) bar.style.color = nativeColor;
+      if (zoom?.parentNode) {
+        if (bar.parentNode !== zoom.parentNode || bar.previousElementSibling !== zoom)
+          zoom.after(bar);
+      } else if (!bar.isConnected && append) append(bar);
+      return bar.isConnected;
     }
     toolbar({ reader,doc,append }) {
       if (!this.active || (reader.type !== "pdf" && reader._type !== "pdf")) return;
       const old = this.toolbars.get(reader);
-      try { if (old?.isConnected) return; old?.remove(); } catch (_) { /* previous iframe is dead */ }
+      try {
+        if (old?.isConnected && old.ownerDocument === doc) {
+          this.positionToolbar(doc,old,append); this.updateButtons(); return;
+        }
+        old?.remove();
+      } catch (_) { /* previous iframe is dead */ }
       const bar = doc.createElement("span");
       bar.className = "marginfit-toolbar";
       const style = doc.createElement("style");
       style.textContent = `.marginfit-toolbar {display:inline-flex;align-items:center;gap:2px;margin-inline:4px;-moz-window-dragging:no-drag}
         .marginfit-toolbar button {font:inherit;color:inherit;border:0;background:transparent;cursor:pointer;min-width:28px;height:28px;border-radius:4px;padding:4px;-moz-window-dragging:no-drag}
-        .marginfit-toolbar button:hover {background:color-mix(in srgb,currentColor 12%,transparent)}
-        .marginfit-toolbar button[aria-pressed=true] {background:color-mix(in srgb,Highlight 22%,transparent)}
+        .marginfit-toolbar button:hover {background:color-mix(in srgb,currentColor 13%,transparent)}
+        .marginfit-toolbar button[aria-pressed=true] {background:color-mix(in srgb,currentColor 25%,transparent);box-shadow:inset 0 0 0 1px currentColor}
         .marginfit-toolbar button:focus-visible {outline:2px solid Highlight;outline-offset:1px}
-        .marginfit-toolbar svg {display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;pointer-events:none}`;
+        .marginfit-toolbar svg {display:block;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;pointer-events:none}`;
       const button = (name,path) => {
         const el = doc.createElement("button"); el.type = "button"; el.dataset.marginfit = name;
         el.className = "toolbar-button";
@@ -506,12 +549,7 @@ var MarginFitRuntime = (() => {
       height.addEventListener("click", () => reader._internalReader?.zoomPageHeight());
       toggle.addEventListener("click", () => this.Services.prefs.setBoolPref(PREF,!this.enabled()));
       bar.append(style,height,toggle);
-      if (append) append(bar);
-      else {
-        const original = doc.getElementById("zoomAuto");
-        if (!original?.parentNode) return;
-        original.after(bar);
-      }
+      if (!this.positionToolbar(doc,bar,append)) return;
       this.toolbars.set(reader,bar);
       this.updateButtons(); this.discoverViews(reader);
     }
@@ -527,6 +565,7 @@ var MarginFitRuntime = (() => {
         const toggle = bar.querySelector('[data-marginfit="detect"]');
         height.title = t.height;
         height.setAttribute("aria-label",t.height);
+        height.setAttribute("aria-pressed",String(this.enabled() && this.mode()==="height"));
         toggle.title = this.detectTitle();
         toggle.setAttribute("aria-label",t.detect);
         toggle.setAttribute("aria-pressed",String(this.enabled()));
@@ -538,8 +577,9 @@ var MarginFitRuntime = (() => {
         try {
         if (![reader._internalReader?._primaryView,reader._internalReader?._secondaryView].includes(view)) continue;
         const toggle = bar.querySelector('[data-marginfit="detect"]');
-        toggle.title = this.detectTitle(!!reason);
+        toggle.title = this.detectTitle(!!reason,reason);
         toggle.dataset.status = reason ? "fallback" : "ready";
+        toggle.dataset.reason = reason || "";
         } catch (_) { /* closed iframe */ }
       }
     }

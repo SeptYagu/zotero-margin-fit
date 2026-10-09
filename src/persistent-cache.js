@@ -1,7 +1,7 @@
 /* Profile-local cache for compact, validated PDF boundary records. No PDF bytes stored. */
 "use strict";
 var MarginFitPersistentCache = (() => {
-  const STORAGE_VERSION = 2; // P1-C adds validated folio metadata for pure-text pages.
+  const STORAGE_VERSION = 3; // v0.1.6 distinguishes estimated and verified fitting bounds.
   const MAX_RECORDS = 3000;
   // One in-process queue per cache file: parallel Zotero reader instances merge safely.
   const WRITE_QUEUE = new Map();
@@ -24,7 +24,12 @@ var MarginFitPersistentCache = (() => {
       Array.isArray(r.raw) && r.raw.length === 4 && r.raw.every(validNumber) &&
       r.raw[0] >= 0 && r.raw[1] >= 0 && r.raw[2] > r.raw[0] && r.raw[3] > r.raw[1] &&
       r.raw[2] <= r.width + 0.01 && r.raw[3] <= r.height + 0.01 &&
-      (r.folio == null || validFolio(r.folio,r));
+      (r.folio == null || validFolio(r.folio,r)) &&
+      (r.widthFitRaw == null || (r.quality==='reliable' && validBox(r.widthFitRaw,r.width,r.height) &&
+        r.widthFitRaw[1]===r.raw[1] && r.widthFitRaw[3]===r.raw[3])) &&
+      (r.boundsKind == null || (r.boundsKind === 'estimated' || r.boundsKind === 'verified')) &&
+      (r.samplingRate == null || (validNumber(r.samplingRate) && r.samplingRate>0 && r.samplingRate<=1)) &&
+      (r.boundaryConfidence == null || (validNumber(r.boundaryConfidence) && r.boundaryConfidence>=0 && r.boundaryConfidence<=1));
   }
   function cacheKey(fingerprints, count, fileStamp = null) {
     if (!Number.isSafeInteger(count) || count < 1 || count > 100000 ||
@@ -69,6 +74,10 @@ var MarginFitPersistentCache = (() => {
         const summary={raw:[...raw],width,height,rotation,viewerRotation,quality,version};
         if(r.fastPath===true)summary.fastPath=true;
         if(r.fastPath===true && r.folio)summary.folio={...r.folio,box:[...r.folio.box],body:[...r.folio.body]};
+        if(r.widthFitRaw)summary.widthFitRaw=[...r.widthFitRaw];
+        if(r.boundsKind)summary.boundsKind=r.boundsKind;
+        if(r.samplingRate!=null)summary.samplingRate=r.samplingRate;
+        if(r.boundaryConfidence!=null)summary.boundaryConfidence=r.boundaryConfidence;
         pages.push([p,summary]);
       }
       return {storageVersion:STORAGE_VERSION,algorithmVersion:this.version,

@@ -1,7 +1,7 @@
 /* Shared pure geometry and serial detection scheduler; no Zotero dependency. */
 "use strict";
 var MarginFitCore = (() => {
-  const VERSION = 3; // P1-C: versioned page-number candidate metadata; 0.1.4 caches invalidate.
+  const VERSION = 4; // v0.1.6: estimated diagonal raster and axis-specific fitting metadata.
   // PDF.js scale=1 viewport units (1/72 inch), applied only at display time.
   const SAFETY = 16;
   const IDLE_MS = 500;

@@ -100,3 +100,18 @@ test('per-document cache keeps newest 3000 entries at the size cap',async()=>{
  assert.equal(saved.has(1),false);
  assert.equal(saved.has(3100),true);
 });
+
+test('v0.1.6 cached sparse width and confidence survive reopen without raw reanalysis',async()=>{
+ const e=env(),store=e.make(),r={...record(),boundsKind:'estimated',
+   samplingRate:.25,boundaryConfidence:.85,widthFitRaw:[55,40,170,240]};
+ store.schedulePage(1,r);await store.flush();
+ const saved=(await e.make().load()).get(1);
+ assert.deepEqual(saved.widthFitRaw,r.widthFitRaw);
+ assert.equal(saved.boundsKind,'estimated');assert.equal(saved.samplingRate,.25);
+ assert.equal(saved.boundaryConfidence,.85);
+ assert.deepEqual(saved.raw,r.raw);
+ const corrupt={...r,widthFitRaw:[-10,40,170,240]};
+ assert.equal(P.validRecord(corrupt,C.VERSION),false);
+ assert.equal(P.validRecord({...r,samplingRate:1.4},C.VERSION),false);
+ assert.equal(P.validRecord({...r,boundsKind:'verified-by-guess'},C.VERSION),false);
+});

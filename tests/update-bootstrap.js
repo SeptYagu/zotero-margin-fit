@@ -25,7 +25,7 @@ async function finish(result) {
 async function run() {
   try {
     await Zotero.Libraries.get(Zotero.Libraries.userLibraryID).waitForDataLoad('item');
-    const {AddonManager}=ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');
+    const {AddonManager,AddonManagerPrivate}=ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');
     const expected=Services.prefs.getStringPref('marginfit.integrationExpectedVersion');
     const oldInstall=await AddonManager.getInstallForURL(OLD_URL,{hash:OLD_HASH});
     await oldInstall.install();
@@ -46,10 +46,15 @@ async function run() {
     check(update.version===expected,'Native Zotero update check discovers '+expected+' from the installed update URL');
     const expectedURL=`https://github.com/SeptYagu/zotero-margin-fit/releases/download/v${expected}/zotero-margin-fit-${expected}.xpi`;
     check(update.sourceURI.spec===expectedURL,'Native updater selects the published release asset');
-    await update.install();
+    // Exercise the background installer too; do not call install() on the discovered update.
+    addon.applyBackgroundUpdates=AddonManager.AUTOUPDATE_ENABLE;
+    Services.prefs.setBoolPref('extensions.update.enabled',true);
+    Services.prefs.setBoolPref('extensions.update.autoUpdateDefault',true);
+    check(AddonManager.shouldAutoUpdate(addon),'Installed plugin permits native background auto-updates');
+    await AddonManagerPrivate.backgroundUpdateCheck();
     await until(async()=> (await AddonManager.getAddonByID(ID))?.version===expected);
     addon=await AddonManager.getAddonByID(ID);
-    check(addon.isActive && addon.isCompatible,'Native updater downloads, verifies and activates '+expected);
+    check(addon.isActive && addon.isCompatible,'Native background updater downloads, verifies and activates '+expected+' without manual install');
     check(addon.description.startsWith('Fit PDF content') && addon.description.includes('自动识别 PDF 白边'),
       'Updated plugin description keeps English before Chinese');
     check(!Services.prefs.getBoolPref('extensions.marginfit.enabled') &&
@@ -64,6 +69,6 @@ async function run() {
     check(toggle.title==='Detect Margins: Off / 识别边界：关闭' && toggle.getAttribute('aria-pressed')==='false',
       'Updated runtime preserves OFF state and displays English before Chinese');
     await addon.uninstall();
-    await finish({passed:true,fromVersion:'0.1.1',toVersion:expected,feed:FEED,download:expectedURL});
+    await finish({passed:true,fromVersion:'0.1.1',toVersion:expected,backgroundAutoUpdate:true,feed:FEED,download:expectedURL});
   } catch (error) { await finish({passed:false,error:String(error),stack:error.stack}); }
 }

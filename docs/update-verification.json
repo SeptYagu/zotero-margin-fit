@@ -1,0 +1,24 @@
+{
+  "version": "10.0.6",
+  "checks": [
+    "Published 0.1.1 installs with its SHA-256 hash",
+    "Native Zotero update check discovers 0.1.2 from the installed update URL",
+    "Native updater selects the published release asset",
+    "Installed plugin permits native background auto-updates",
+    "Native background updater downloads, verifies and activates 0.1.2 without manual install",
+    "Updated plugin description keeps English before Chinese",
+    "Native update preserves detection and direction preferences",
+    "Updated runtime attaches the English-first height button",
+    "Updated runtime preserves OFF state and displays English before Chinese"
+  ],
+  "measurements": {
+    "processTreePeakPrivateBytesSampled": 931086336,
+    "nominalMemorySamplingIntervalMs": 500
+  },
+  "passed": true,
+  "fromVersion": "0.1.1",
+  "toVersion": "0.1.2",
+  "backgroundAutoUpdate": true,
+  "feed": "https://raw.githubusercontent.com/SeptYagu/zotero-margin-fit/main/updates.json",
+  "download": "https://github.com/SeptYagu/zotero-margin-fit/releases/download/v0.1.2/zotero-margin-fit-0.1.2.xpi"
+}

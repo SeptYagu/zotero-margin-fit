@@ -105,7 +105,9 @@ var MarginFitRuntime = (() => {
       // pending work immediately, but only inspect page geometry once per short window.
       if (!this.host.enabled()) return;
       this.session.noteActivity?.(this.lastInput);
-      if (this.inputFlushTimer) return;
+      // Trailing debounce: while the user keeps scrolling, calculate no DOM
+      // geometry at all. One final page check occurs 75 ms after the last input.
+      if (this.inputFlushTimer) this.host.clearTimeout(this.inputFlushTimer);
       this.inputFlushTimer = this.host.setTimeout(() => {
         this.inputFlushTimer = null;
         if (this.closed || !this.host.enabled()) return;

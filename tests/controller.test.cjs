@@ -146,3 +146,18 @@ test('OFF scroll path does not inspect visible-page geometry',async()=>{
   assert.equal(calls,0);
   f.controller.close();
 });
+
+test('trailing scroll debounce avoids page geometry during continuous input',async()=>{
+ const f=setup();f.enable();
+ let calls=0;
+ const old=f.controller.page.bind(f.controller);
+ f.controller.page=(...args)=>{calls++;return old(...args)};
+ for(let n=0;n<12;n++) {
+   f.controller.input();
+   await new Promise(r=>setTimeout(r,19));
+ }
+ assert.equal(calls,0,'no synchronous or timed geometry reads while scrolling');
+ await new Promise(r=>setTimeout(r,110));
+ assert.equal(calls,1,'one primary-page read after the last input');
+ f.controller.close();
+});

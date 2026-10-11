@@ -1,0 +1,45 @@
+name: Publish verified MarginFit XPI
+
+on:
+  push:
+    branches:
+      - 'publish/v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'SeptYagu/zotero-margin-fit'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release staging branch
+        uses: actions/checkout@v4
+
+      - name: Validate artifact against recorded SHA-256 and release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#publish/v}"
+          test "$VERSION" != "$GITHUB_REF_NAME"
+          test "$(node -p "require('./manifest.json').version")" = "$VERSION"
+          test -f "dist/zotero-margin-fit-$VERSION.xpi"
+          test -f "release-asset.sha256"
+          test -f "RELEASE_NOTES.md"
+          sha256sum -c release-asset.sha256
+          git ls-remote --exit-code --tags origin "refs/tags/v$VERSION"
+
+      - name: Create GitHub release with prevalidated Windows XPI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#publish/v}"
+          TAG="v$VERSION"
+          FILE="dist/zotero-margin-fit-$VERSION.xpi"
+          gh release create "$TAG" "$FILE" \
+            --verify-tag \
+            --latest \
+            --title "MarginFit $TAG" \
+            --notes-file RELEASE_NOTES.md

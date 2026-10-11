@@ -138,3 +138,22 @@ test('explicit Fit unblocks L1 idle cooldown without changing sample order',asyn
   assert.deepEqual(analyzed,[5,6,11,12,17,18]);
   session.close();
 });
+
+test('visible-ink calibration detects real-book text-width inflation without changing ordinary text',()=>{
+  assert.equal(C.textNeedsInkCalibration([64,58,432,657],432),true);
+  assert.equal(C.textNeedsInkCalibration([65,58,413.6,657],432),true);
+  assert.equal(C.textNeedsInkCalibration([80,100,340,600],432),false);
+  assert.equal(C.textNeedsInkCalibration([60,100,360,600],600),false);
+  const printed=[65,58,366,657],inflated=[64,58,432,657];
+  assert.deepEqual(C.reconcileTextInk(inflated,printed,432,true,{left:true,right:true}),[64,58,366,657]);
+  assert.deepEqual(C.reconcileTextInk(inflated,printed,432,true,{left:false,right:false}),[64,58,432,657]);
+  assert.deepEqual(C.reconcileTextInk(inflated,printed,432,false),[64,58,432,657]);
+  assert.deepEqual(C.safeBox(C.reconcileTextInk(inflated,printed,432,true,{left:true,right:true}),432,688),
+    [48,42,382,673]);
+});
+test('ink calibration never shrinks a trustworthy or missing graphic boundary',()=>{
+  const text=[66,58,365,657],raster=[60,51,420,662];
+  assert.deepEqual(C.reconcileTextInk(text,raster,432,true,{left:true,right:true}),[60,51,420,662]);
+  assert.deepEqual(C.reconcileTextInk(text,null,432,true,{left:true,right:true}),text);
+  assert.deepEqual(C.reconcileTextInk(null,raster,432,true,{left:true,right:true}),raster);
+});

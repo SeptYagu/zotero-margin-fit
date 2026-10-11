@@ -1,7 +1,7 @@
 /* Shared pure geometry and serial detection scheduler; no Zotero dependency. */
 "use strict";
 var MarginFitCore = (() => {
-  const VERSION = 4; // v0.1.6: estimated diagonal raster and axis-specific fitting metadata.
+  const VERSION = 5; // v0.1.7: invalidate stale text-geometry bounds after ink calibration.
   // PDF.js scale=1 viewport units (1/72 inch), applied only at display time.
   const SAFETY = 16;
   const IDLE_MS = 500;
@@ -86,6 +86,65 @@ var MarginFitCore = (() => {
     }
     return left === Infinity ? null : [clamp(left,0,viewport.width), clamp(top,0,viewport.height),
       clamp(right,0,viewport.width), clamp(bottom,0,viewport.height)];
+  }
+  // Some PDFs expose text advances that are much wider than the glyphs that
+  // actually render (e.g. embedded-font metrics, synthetic spaces or clipping).
+  // A text frame touching one page edge while the opposite margin is substantial
+  // is a cheap, conservative reason to calibrate against real ink pixels.
+  function textNeedsInkCalibration(box, width) {
+    if (!box || !Number.isFinite(width) || width<=0 ||
+        !box.every(Number.isFinite)) return false;
+    const left = Math.max(0,box[0]), right = Math.max(0,width-box[2]);
+    const tight = Math.max(3,width*.025), opposite = Math.max(18,width*.09);
+    const imbalance = Math.max(24,width*.07), smallSide=Math.max(12,width*.075);
+    // The offending article has similar bad font metrics on pages whose text
+    // frame is 10-20 PDF units *inside* the physical edge. A severely lopsided
+    // text frame with a small opposite margin also warrants an ink calibration.
+    return (left>opposite && right<tight) || (right>opposite && left<tight) ||
+      (Math.abs(left-right)>imbalance && Math.min(left,right)<smallSide);
+  }
+  // A long-lived ink edge, present at multiple separated heights, is evidence
+  // that a 1/4-rate diagonal sample did not merely land on one random glyph.
+  // A sparse absence is NEVER proof of empty pixels; lack of support retains
+  // the original text frame. The 16 PDF-unit fitting pad protects small misses.
+  function sparseEdgeSupport(ink,width,height) {
+    if (!ink || ink.quality!=="estimated" || !ink.box ||
+        !ink.inkByRow || !ink.leftByRow || !ink.rightByRow)
+      return {left:false,right:false,confidence:0,reason:"no-sparse-evidence"};
+    const stride=ink.stride||4;
+    const tolerance=stride*2+2;
+    const l=ink.box[0]+1,r=ink.box[2]-2;
+    const evidence=[{rows:0,mask:0,first:height,last:-1},
+      {rows:0,mask:0,first:height,last:-1}];
+    for(let y=0;y<height;y++) {
+      if(ink.inkByRow[y]<3)continue; // Reject single-pixel and thin isolated noise.
+      for(let side=0;side<2;side++) {
+        const match=side===0 ? ink.leftByRow[y]<=l+tolerance
+          : ink.rightByRow[y]>=r-tolerance;
+        if (!match)continue;
+        const e=evidence[side];
+        e.rows++;e.first=Math.min(e.first,y);e.last=Math.max(e.last,y);
+        e.mask|=1<<Math.min(7,Math.floor(8*y/height));
+      }
+    }
+    const bands=mask=>{let n=0;for(;mask;mask>>=1)n+=mask&1;return n;};
+    const minRows=Math.max(8,Math.ceil(height*.018));
+    const passed=e=>e.rows>=minRows && bands(e.mask)>=3 && e.last-e.first>=height*.25;
+    const left=passed(evidence[0]),right=passed(evidence[1]);
+    return {left,right,confidence:(left||right)?0.85:0,
+      leftRows:evidence[0].rows,rightRows:evidence[1].rows,
+      leftBands:bands(evidence[0].mask),rightBands:bands(evidence[1].mask),
+      reason:left||right?"distributed-sparse-edge":"insufficient-edge-support"};
+  }
+  // For only the supported side, let visible ink override grossly inflated
+  // text advances. Ordinary text and unsupported anomalies keep the union.
+  function reconcileTextInk(text,raster,width,calibrate=false,support=null) {
+    const result=union(text,raster);
+    if (!result || !text || !raster || !calibrate || !support) return result;
+    const mismatch=Math.max(SAFETY,width*.035);
+    if (support.right && text[2]-raster[2]>mismatch) result[2]=raster[2];
+    if (support.left && raster[0]-text[0]>mismatch) result[0]=raster[0];
+    return result;
   }
   // Identify a folio candidate during the existing text-bbox traversal.
   // Pure-text mode only: a number at the edge is not sufficient on its own.
@@ -410,7 +469,7 @@ var MarginFitCore = (() => {
     close() { this.closed = true; this.store?.close(this.cache); this.cache.clear(); }
   }
   return { VERSION, SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,
-    parityModels, prediction, multiply, textBox, textAndFolio, folioPattern, fitPageRecord,
+    parityModels, prediction, multiply, textBox, textNeedsInkCalibration, sparseEdgeSupport, reconcileTextInk, textAndFolio, folioPattern, fitPageRecord,
     isTextOnlyOps, inkBox, sparseInkBox, sparseBodyWidth, scaleDecision, primaryPage, hook, Session };
 })();
 if (typeof module !== "undefined") module.exports = MarginFitCore;

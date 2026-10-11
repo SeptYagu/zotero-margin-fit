@@ -313,13 +313,14 @@ var MarginFitRuntime = (() => {
       const content = unwrap(await page.getTextContent());
       const folioAnalysis = C.textAndFolio(content,viewport);
       const text = folioAnalysis.all;
+      const suspectText = C.textNeedsInkCalibration(text,viewport.width);
       // A strict PDF.js operator allowlist forbids graphics, scans and unknown paint ops.
       // Only then can the cheap text geometry replace offscreen rasterization.
       if (text) {
         try {
           const ops = unwrap(win.pdfjsLib)?.OPS || unwrap(app.pdfjsLib)?.OPS;
           const instructions = unwrap(await page.getOperatorList());
-          if (C.isTextOnlyOps(instructions,ops,text)) {
+          if (!suspectText && C.isTextOnlyOps(instructions,ops,text)) {
             // Annotation appearances may extend beyond text; a non-empty list is unsafe
             // for a text-only crop, even when the underlying page operations are text.
             const annotations=unwrap(await page.getAnnotations(into(win,{intent:'display'})));
@@ -344,14 +345,19 @@ var MarginFitRuntime = (() => {
       const pixels = context.getImageData(0,0,canvas.width,canvas.height);
       // Copy once into the chrome realm instead of paying cross-compartment costs per pixel.
       const rgba = Components.utils.cloneInto(pixels.data,{});
-      // One render and one RGBA transfer, then sample ~25% of pixels.
-      // Low-confidence raster classes fall back to the original exact scan.
-      let ink = C.sparseInkBox({ width: pixels.width, height: pixels.height, data: rgba });
+      // One low-res render and RGBA transfer. Both ordinary and suspect-text
+      // pages use the same diagonal ~25% sample; calibration adds *no* full
+      // scan. Existing blank/dark/dense fallbacks retain legacy conservative
+      // whole-image handling, rather than silently cropping unreadable content.
+      let ink = C.sparseInkBox({width:pixels.width,height:pixels.height,data:rgba});
       const estimated = ink.quality === "estimated";
+      const support = estimated && suspectText
+        ? C.sparseEdgeSupport(ink,pixels.width,pixels.height) : null;
       const body = estimated ? C.sparseBodyWidth(ink,pixels.width,pixels.height) : null;
       if (!estimated) ink = C.inkBox({width:pixels.width,height:pixels.height,data:rgba});
       const raster = ink.box?.map(n => n/factor);
-      const merged = C.union(text,raster);
+      const merged = C.reconcileTextInk(text,raster,viewport.width,
+        suspectText && estimated,support);
       const quality = ink.quality === "estimated" ? "reliable" : ink.quality;
       const raw = quality === "reliable" && merged
         ? [C.clamp(merged[0],0,viewport.width),C.clamp(merged[1],0,viewport.height),
@@ -369,7 +375,12 @@ var MarginFitRuntime = (() => {
       }
       return { raw, widthFitRaw, width: viewport.width, height: viewport.height, rotation: viewport.rotation,
         quality, boundsKind: estimated ? "estimated" : "verified", samplingRate: estimated ? ink.visited/(pixels.width*pixels.height) : 1,
-        boundaryConfidence: body?.confidence || 0, reason: ink.reason, version: C.VERSION, viewerRotation,
+        boundaryConfidence: support?.confidence || body?.confidence || 0,
+        reason: suspectText && estimated &&
+          (merged?.[0]>Math.min(text?.[0]??0,raster?.[0]??0)+.1 ||
+            merged?.[2]<Math.max(text?.[2]??0,raster?.[2]??0)-.1)
+          ? "text-ink-calibration" : ink.reason,
+        version: C.VERSION, viewerRotation,
         revision: app.pdfDocument.fingerprints?.join(":"), elapsedMs: Date.now()-start,
         rasterBytes: canvas.width*canvas.height*4, copiedRasterBytes: rgba.byteLength };
     } catch (error) {

@@ -85,3 +85,28 @@ test("height and width fit read separate bounds and padding is 16 once",()=>{
   assert.deepEqual(C.scaleDecision(r,"width",{width:357,height:900},1,1,true).safe,[104,54,461,786]);
   assert.deepEqual(C.scaleDecision(r,"height",{width:900,height:732},1,1,true).safe,[14,54,556,786]);
 });
+
+test("quarter-density diagonal sample is sufficient to calibrate a distributed right text edge",()=>{
+  const im=image(432,688);
+  for(let y=85;y<590;y+=14)im.rect(66,y,300,8);
+  const ink=C.sparseInkBox(im);
+  assert.equal(ink.quality,"estimated");
+  assert.ok(ink.visited/(432*688)>.245 && ink.visited/(432*688)<.255);
+  const support=C.sparseEdgeSupport(ink,432,688);
+  assert.equal(support.right,true);
+  assert.equal(support.left,true);
+  assert.ok(support.rightBands>=3 && support.rightRows>=8);
+  const corrected=C.reconcileTextInk([64,58,432,657],ink.box,432,true,support);
+  assert.ok(corrected[2]>=360 && corrected[2]<=370);
+  assert.ok(corrected[2]<380);
+});
+test("lonely peripheral pixel cannot authorize removing text geometry",()=>{
+  const im=image(432,688);
+  im.rect(80,85,200,6);
+  im.rect(65,540,2,3);
+  const ink=C.sparseInkBox(im);
+  const support=C.sparseEdgeSupport(ink,432,688);
+  assert.equal(support.right,false);
+  assert.deepEqual(C.reconcileTextInk([64,58,432,657],ink.box,432,true,support),
+    [Math.min(64,ink.box[0]),Math.min(58,ink.box[1]),432,Math.max(657,ink.box[3])]);
+});

@@ -256,10 +256,14 @@ var MarginFitRuntime = (() => {
         // intrinsic PDF.js page centering and scrollbar changes can make them unequal.
         const afterHorizontal = page.div.getBoundingClientRect();
         const actualLeft = afterHorizontal.left-root.left + box[0]*scale;
-        const actualRight = root.right-afterHorizontal.left-box[2]*scale;
+        // clientWidth, not root.right, excludes the vertical scrollbar. The
+        // fitting scale and target x both use this same scrollable viewport.
+        const actualRight = root.left+this.container.clientWidth-afterHorizontal.left-box[2]*scale;
         this.metrics.lastHorizontalFit = {
           page:p,mode:this.mode,requestedScrollLeft:x,actualScrollLeft:this.container.scrollLeft,
           maxScrollLeft:Math.max(0,this.container.scrollWidth-this.container.clientWidth),
+          viewportClientWidth:this.container.clientWidth,viewportRectWidth:root.width,
+          scrollbarWidth:root.width-this.container.clientWidth,
           leftMargin:actualLeft,rightMargin:actualRight,delta:actualLeft-actualRight,
           widthBounds:[box[0],box[2]],fittingSource:Array.isArray(fitting.widthFitRaw)?"body":"full"
         };
@@ -566,7 +570,9 @@ var MarginFitRuntime = (() => {
         height.title = t.height;
         height.setAttribute("aria-label",t.height);
         height.setAttribute("aria-pressed",String(this.enabled() && this.mode()==="height"));
-        toggle.title = this.detectTitle();
+        // Preserve a per-document fallback explanation across toolbar updates.
+        // The ON/OFF preference change must not silently erase the diagnosis.
+        toggle.title = this.detectTitle(this.enabled() && toggle.dataset.status==="fallback",toggle.dataset.reason || "");
         toggle.setAttribute("aria-label",t.detect);
         toggle.setAttribute("aria-pressed",String(this.enabled()));
         } catch (_) { /* closed iframe; discovery will remove this entry */ }

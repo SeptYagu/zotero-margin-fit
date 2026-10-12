@@ -3,9 +3,9 @@
     "marginfit@septyagu.local": {
       "updates": [
         {
-          "version": "0.1.12",
-          "update_link": "https://github.com/SeptYagu/zotero-margin-fit/releases/download/v0.1.12/zotero-margin-fit-0.1.12.xpi",
-          "update_hash": "sha256:843e96c3f14f0f8ad4e54bb36bb114abaa2e5893a99d0c5140b2270106089879",
+          "version": "0.1.13",
+          "update_link": "https://github.com/SeptYagu/zotero-margin-fit/releases/download/v0.1.13/zotero-margin-fit-0.1.13.xpi",
+          "update_hash": "sha256:dc2ee3b71ae5ed2a1d578a90d1b7439803e42f8ae86f880f0f2dd4365db0dc9f",
           "applications": {
             "zotero": {
               "strict_min_version": "10.0.5",

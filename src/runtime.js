@@ -36,12 +36,12 @@ var MarginFitRuntime = (() => {
       this.metrics = { writes: [], fallback: 0 };
       const width = view.zoomPageWidth, height = view.zoomPageHeight, stats = view._onChangeViewStats;
       this.restores.push(C.hook(view, "zoomPageWidth", () => {
-        if (!host.enabled()) { this.mode = "width"; host.setMode("width"); return width.call(view); }
-        return this.request("width");
+        if (!host.enabled()) { this.mode="width"; host.setMode("width"); return width.call(view); }
+        return this.toggleMode("width");
       }));
       this.restores.push(C.hook(view, "zoomPageHeight", () => {
         if (!host.enabled()) { this.mode = "height"; host.setMode("height"); return height.call(view); }
-        return this.request("height");
+        return this.toggleMode("height");
       }));
       this.restores.push(C.hook(view, "_onChangeViewStats", data => stats.call(view,
         host.enabled() ? into(this.win,{ ...data, canZoomReset: true }) : data)));
@@ -87,7 +87,7 @@ var MarginFitRuntime = (() => {
         });
         this.resize.observe(this.container);
       }
-      if (host.enabled()) this.ensureContinuous();
+      if (host.enabled() && this.mode !== "off") this.ensureContinuous();
       this.view._updateViewStats();
       this.listen(this.win,"unload",() => this.close(true));
       this.begin();
@@ -131,7 +131,7 @@ var MarginFitRuntime = (() => {
       this.cancelTimer();
       // Wheel and native scroll events often describe the same movement. Invalidate
       // pending work immediately, but only inspect page geometry once per short window.
-      if (!this.host.enabled()) return;
+      if (!this.host.enabled() || this.mode === "off") return;
       this.session.noteActivity?.(this.lastInput);
       // One inexpensive timer for a whole wheel/scroll burst. Avoid cancelling
       // and allocating a timer for every single input event.
@@ -195,17 +195,18 @@ var MarginFitRuntime = (() => {
     }
     arm() {
       this.cancelTimer();
-      if (!this.closed && this.host.enabled() && !this.manual)
+      if (!this.closed && this.host.enabled() && this.mode !== "off" && !this.manual)
         this.timer = this.host.setTimeout(() => this.refine(), C.IDLE_MS);
     }
     stable(token, p) {
-      return !this.closed && this.host.enabled() && !this.dragging && !this.manual &&
+      return !this.closed && this.host.enabled() && this.mode !== "off" &&
+        !this.dragging && !this.manual &&
         alive(this.app) && alive(this.view) && alive(this.container) &&
         this.document === this.app.pdfDocument &&
         this.epoch === token && this.page() === p && this.host.now()-this.lastInput >= C.IDLE_MS;
     }
     async begin() {
-      if (this.closed || !this.host.enabled()) return;
+      if (this.closed || !this.host.enabled() || this.mode === "off") return;
       const token = this.epoch, p = this.page();
       try {
         const rotation = this.viewer.getPageView(p-1).viewport.rotation;
@@ -225,6 +226,7 @@ var MarginFitRuntime = (() => {
       } catch (error) { this.failure(error); }
     }
     async refine() {
+      if (this.mode === "off") return;
       const token = this.epoch, p = this.page();
       if (!this.stable(token, p) || this.prefetchedEpoch === token || this.refiningEpoch === token) {
         if (this.dragging) this.arm(); return;
@@ -256,6 +258,31 @@ var MarginFitRuntime = (() => {
         }
       } catch (error) { this.failure(error); }
       finally { if (this.refiningEpoch === token) this.refiningEpoch = null; }
+    }
+    suspendMode() {
+      // Preserve PDF zoom/scroll position; cancel any pending automatic fit.
+      this.epoch++; this.cancelTimer();
+      this.userHeldPage=null; this.manual=false;
+      this.host.indexer?.stop(this);
+    }
+    syncMode() {
+      const mode=this.host.mode();
+      if (mode === this.mode) return;
+      this.mode=mode;
+      this.suspendMode();
+      if (this.host.enabled() && mode !== "off") this.begin();
+    }
+    toggleMode(mode) {
+      if (this.mode !== mode) {
+        // Disabled margin recognition uses Zotero's original fit command.
+        if (!this.host.enabled()) {
+          return this.view[mode==="width"?"zoomPageWidth":"zoomPageHeight"]();
+        }
+        return this.request(mode);
+      }
+      this.mode="off";
+      this.suspendMode();
+      this.host.setMode("off");
     }
     async request(mode) {
       this.mode = mode; this.host.setMode(mode);
@@ -291,7 +318,8 @@ var MarginFitRuntime = (() => {
       this.host.status(this.view, reason || "unreliable");
     }
     async apply(record, p, token, explicit = false, initial = false, navigation = false) {
-      const valid = () => !this.closed && this.host.enabled() && token === this.epoch &&
+      const valid = () => !this.closed && this.host.enabled() &&
+        this.mode !== "off" && token === this.epoch &&
         alive(this.app) && alive(this.container) &&
         this.document === this.app.pdfDocument &&
         (explicit || (!this.dragging && !this.manual &&
@@ -392,9 +420,9 @@ var MarginFitRuntime = (() => {
       this.host.clearTimeout(this.inputFlushTimer); this.inputFlushTimer = null;
       this.session.setEnabled(this.host.enabled());
       this.anchor = this.viewer.currentScale;
-      if (this.host.enabled()) this.ensureContinuous();
+      if (this.host.enabled() && this.mode !== "off") this.ensureContinuous();
       this.view._updateViewStats();
-      if (this.host.enabled()) this.begin();
+      if (this.host.enabled() && this.mode !== "off") this.begin();
       else this.host.indexer?.stop(this);
     }
     close(unloading = false) {
@@ -530,9 +558,16 @@ var MarginFitRuntime = (() => {
         for (const c of this.controllers.values()) c.toggle();
         this.updateButtons();
       } };
+      this.modeObserver = { observe: () => {
+        for (const c of this.controllers.values()) c.syncMode();
+        this.updateButtons();
+      } };
     }
     enabled() { return this.Services.prefs.getBoolPref(PREF, true); }
-    mode() { return this.Services.prefs.getStringPref(MODE, "width") === "height" ? "height" : "width"; }
+    mode() {
+      const mode=this.Services.prefs.getStringPref(MODE, "width");
+      return mode==="off" || mode==="height" ? mode : "width";
+    }
     setMode(mode) { this.Services.prefs.setStringPref(MODE, mode); this.updateButtons(); }
     now() { return Date.now(); }
     setTimeout(fn,ms) { return this.timers.setTimeout(fn,ms); }
@@ -542,6 +577,7 @@ var MarginFitRuntime = (() => {
       this.active = true;
       this.Zotero.Reader.registerEventListener("renderToolbar",this.render,ID);
       this.Services.prefs.addObserver(PREF,this.observer);
+      this.Services.prefs.addObserver(MODE,this.modeObserver);
       // A short discovery timer covers existing tabs, split panes, and detached reader windows.
       this.poll = this.timers.setInterval(() => this.discover(),500);
       this.discover();
@@ -628,7 +664,9 @@ var MarginFitRuntime = (() => {
       finally { this.pending.delete(view); }
     }
     strings() {
-      return { height: "Fit Height / 适合高度", detect: "Detect Margins / 识别边界" };
+      return { width:"Fit Width / \u9002\u5408\u5bbd\u5ea6",
+        height:"Fit Height / \u9002\u5408\u9ad8\u5ea6",
+        detect:"Detect Margins / \u8bc6\u522b\u8fb9\u754c" };
     }
     detectTitle(fallback = false, reason = "") {
       const state = this.enabled() ? ["On", "开启"] : ["Off", "关闭"];
@@ -653,7 +691,8 @@ var MarginFitRuntime = (() => {
     }
     positionToolbar(doc,bar,append) {
       // Zotero's renderToolbar append callback targets the right-hand section.
-      // Keep our controls immediately after native Reset Zoom in the left section,
+      // Hide Reset Zoom through the plugin-owned stylesheet so our Width button
+      // takes its original position in the left section,
       // including when Zotero re-renders the toolbar after initial construction.
       const zoom = doc.getElementById("zoomAuto");
       const nativeZoom = doc.getElementById("zoomIn") || zoom;
@@ -679,7 +718,8 @@ var MarginFitRuntime = (() => {
       const bar = doc.createElement("span");
       bar.className = "marginfit-toolbar";
       const style = doc.createElement("style");
-      style.textContent = `.marginfit-toolbar {display:inline-flex;align-items:center;gap:2px;margin-inline:4px;-moz-window-dragging:no-drag}
+      style.textContent = `#zoomAuto {display:none !important}
+        .marginfit-toolbar {display:inline-flex;align-items:center;gap:2px;margin-inline:4px;-moz-window-dragging:no-drag}
         .marginfit-toolbar button {font:inherit;color:inherit;border:0;background:transparent;cursor:pointer;min-width:28px;height:28px;border-radius:4px;padding:4px;-moz-window-dragging:no-drag}
         .marginfit-toolbar button:hover {background:color-mix(in srgb,currentColor 13%,transparent)}
         .marginfit-toolbar button[aria-pressed=true] {background:color-mix(in srgb,currentColor 25%,transparent);box-shadow:inset 0 0 0 1px currentColor}
@@ -693,15 +733,24 @@ var MarginFitRuntime = (() => {
         const line = doc.createElementNS(svg.namespaceURI,"path"); line.setAttribute("d",path);
         svg.append(line); el.append(svg); return el;
       };
+      const width = button("width","M3 5v14M21 5v14M5 12h14M9 8l-4 4 4 4M15 8l4 4-4 4");
       const height = button("height","M5 3h14M5 21h14M12 5v14M8 9l4-4 4 4M8 15l4 4 4-4");
       const toggle = button("detect","M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 7h10v10H7z");
-      height.addEventListener("click", () => reader._internalReader?.zoomPageHeight());
+      width.addEventListener("click", () => this.clickMode(reader,"width"));
+      height.addEventListener("click", () => this.clickMode(reader,"height"));
       toggle.addEventListener("click", () => this.Services.prefs.setBoolPref(PREF,!this.enabled()));
-      bar.append(style,height,toggle);
+      bar.append(style,width,height,toggle);
       if (!this.positionToolbar(doc,bar,append)) return;
       this.removeDuplicateToolbars(doc,bar);
       this.toolbars.set(reader,bar);
       this.updateButtons(); this.discoverViews(reader);
+    }
+    clickMode(reader,mode) {
+      const view=reader._internalReader?._primaryView;
+      const c=this.controllers.get(view);
+      if (c) return c.toggleMode(mode);
+      // The toolbar can be mounted just before the reader controller attaches.
+      this.setMode(this.mode()===mode?"off":mode);
     }
     discoverViews(reader) {
       for (const view of [reader._internalReader?._primaryView,reader._internalReader?._secondaryView].filter(Boolean))
@@ -711,11 +760,15 @@ var MarginFitRuntime = (() => {
       const t = this.strings();
       for (const bar of this.toolbars.values()) {
         try {
+        const width = bar.querySelector('[data-marginfit="width"]');
         const height = bar.querySelector('[data-marginfit="height"]');
         const toggle = bar.querySelector('[data-marginfit="detect"]');
+        width.title=t.width;
+        width.setAttribute("aria-label",t.width);
+        width.setAttribute("aria-pressed",String(this.mode()==="width"));
         height.title = t.height;
         height.setAttribute("aria-label",t.height);
-        height.setAttribute("aria-pressed",String(this.enabled() && this.mode()==="height"));
+        height.setAttribute("aria-pressed",String(this.mode()==="height"));
         // Preserve a per-document fallback explanation across toolbar updates.
         // The ON/OFF preference change must not silently erase the diagnosis.
         toggle.title = this.detectTitle(this.enabled() && toggle.dataset.status==="fallback",toggle.dataset.reason || "");
@@ -740,6 +793,7 @@ var MarginFitRuntime = (() => {
       this.indexer.close();
       this.timers.clearInterval(this.poll);
       this.Services.prefs.removeObserver(PREF,this.observer);
+      this.Services.prefs.removeObserver(MODE,this.modeObserver);
       this.Zotero.Reader.unregisterEventListener("renderToolbar",this.render);
       for (const c of this.controllers.values()) c.close();
       for (const s of this.sessions.values()) s.close();

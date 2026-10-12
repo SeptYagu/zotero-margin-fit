@@ -1,10 +1,17 @@
 # MarginFit
 
-Smart content fitting for the Zotero PDF reader. Keeps the native **Reset Zoom** and adds only **Fit Height** and **Detect Margins**.
+Smart content fitting for the Zotero PDF reader. Hides native **Reset Zoom** and replaces it in place with **Fit Width**, **Fit Height**, and **Detect Margins**.
 
-Zotero PDF 阅读器的智能内容适应插件。保留原生 **Reset Zoom**，只新增 **Fit Height / 适合高度** 和 **Detect Margins / 识别边界** 两个控件。
+Zotero PDF ???????????????? **Reset Zoom**??????? **???? / ???? / ????** ?????????????????
 
 本项目依照 [需求文档](09-智能去白边阅读开关.md) 实现。当前正式版本为 **0.1.8**，使用 Zotero 私有阅读器接口。兼容范围限定为 Zotero 10.0.x。运行测试的具体版本、通过项和待测项见 [验证记录](docs/verification.md)。
+
+## v0.1.13 Fit toggle modes
+
+- Hide native Reset Zoom in its original slot; plugin-owned Fit Width, Fit Height and Detect Margins take its place. Plugin shutdown restores the original.
+- Fit modes are mutually exclusive and toggle off on a second click; off preserves zoom and reading position.
+- When margin detection is disabled, Width and Height use the native Zotero fit functions.
+- Existing full-document scrolling, content-page navigation and cache are unchanged.
 
 ## v0.1.12 content-page stepping
 
@@ -83,7 +90,7 @@ npm test
 npm run build
 ```
 
-Official build: dist/zotero-margin-fit-0.1.12.xpi. Zotero automatic updates use the public feed once the GitHub Release XPI and SHA-256 have been verified.
+Official build: dist/zotero-margin-fit-0.1.13.xpi. Zotero automatic updates use the public feed once the GitHub Release XPI and SHA-256 have been verified.
 
 在安装 Zotero 的 Windows 电脑上运行真实阅读器回归：
 

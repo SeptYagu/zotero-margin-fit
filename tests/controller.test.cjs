@@ -24,7 +24,9 @@ function setup(count=1) {
     _onChangeViewStats:stats,_updateViewStats(){this._onChangeViewStats({canZoomReset:false});}};
   let time=1000,enabled=false;
   const errors=[];
-  const host={mode:()=> 'width',setMode(){},enabled:()=>enabled,now:()=>time,
+  let savedMode="width";
+  const host={mode:()=>savedMode,setMode(value){savedMode=value;},
+    enabled:()=>enabled,now:()=>time,
     setTimeout:(fn,ms)=>setTimeout(fn,ms),clearTimeout:clearTimeout,status(){},error:e=>errors.push(e)};
   const record={raw:[100,150,400,650],width:600,height:800,rotation:0,quality:'reliable'};
   const session=new global.MarginFitCore.Session(count,async()=>record);
@@ -365,5 +367,82 @@ test('ordinary movement on the same page is not snapped; entering next page is',
  assert.equal(f.controller.lastPage,2);
  assert.notEqual(f.viewer.container.scrollTop,1270,'crossing the page snaps to its content');
  assert.equal(f.viewer.scrollMode,0,'PDF remains a continuous document');
+ f.controller.close();
+});
+
+
+test('Fit Width and Fit Height controls are mutually exclusive on/off toggles',async()=>{
+ const f=setup(6);f.enable();
+ await f.view.zoomPageHeight();
+ assert.equal(f.controller.mode,'height');
+ assert.equal(f.host.mode(),'height');
+ const heightScale=f.viewer.currentScale,heldY=f.viewer.container.scrollTop;
+ await f.view.zoomPageHeight();
+ assert.equal(f.controller.mode,'off');
+ assert.equal(f.host.mode(),'off');
+ assert.equal(f.viewer.currentScale,heightScale,'turning off preserves the current zoom');
+ assert.equal(f.viewer.container.scrollTop,heldY,'turning off preserves the reading position');
+ assert.equal(f.controller.timer,null,'idle fitting is stopped');
+ const writes=f.controller.metrics.writes.length;
+ f.advance(700);
+ await f.controller.apply(f.record,1,f.controller.epoch,true);
+ assert.equal(f.controller.metrics.writes.length,writes,'stale manual fitting cannot run while off');
+ await f.controller.toggleMode('width');
+ assert.equal(f.controller.mode,'width');
+ assert.equal(f.host.mode(),'width');
+ await f.controller.toggleMode('width');
+ assert.equal(f.controller.mode,'off');
+ assert.equal(f.host.mode(),'off');
+ await f.view.zoomPageHeight();
+ assert.equal(f.controller.mode,'height','switch from off to height works');
+ await f.controller.toggleMode('width');
+ assert.equal(f.controller.mode,'width','switching active mode is a single click');
+ await f.view.zoomPageWidth();
+ assert.equal(f.controller.mode,'off','native Zoom Width entry toggles active width off');
+ f.controller.close();
+});
+test('switching fit off cancels a pending foreground detection',async()=>{
+ const f=setup(6);f.enable();
+ f.controller.toggleMode('width');
+ assert.equal(f.controller.mode,'off');
+ let resolve;
+ f.session.detect=()=>new Promise(r=>resolve=r);
+ const job=f.view.zoomPageHeight();
+ await new Promise(r=>setTimeout(r,0));
+ assert.equal(f.controller.mode,'height');
+ f.view.zoomPageHeight();
+ assert.equal(f.controller.mode,'off');
+ const count=f.controller.metrics.writes.length;
+ resolve(f.record);await job;
+ assert.equal(f.controller.metrics.writes.length,count,'late result cannot reposition document');
+ f.controller.close();
+});
+test('mode sync cancels other readers without altering their scale',async()=>{
+ const f=setup(4);f.enable();
+ f.viewer.currentScaleValue=1.31;f.viewer.container.scrollTop=83;
+ f.host.setMode('off');
+ f.controller.syncMode();
+ assert.equal(f.controller.mode,'off');
+ assert.equal(f.viewer.currentScale,1.31);
+ assert.equal(f.viewer.container.scrollTop,83);
+ f.host.setMode('height');
+ f.controller.syncMode();
+ assert.equal(f.controller.mode,'height');
+ f.controller.close();
+});
+
+
+test('margin detection disabled: both fit controls still use native page fitting',async()=>{
+ const f=setup(3);
+ f.view.zoomPageWidth();
+ assert.equal(f.viewer.native,'width');
+ assert.equal(f.controller.mode,'width');
+ f.controller.toggleMode('width');
+ assert.equal(f.controller.mode,'off');
+ f.controller.toggleMode('height');
+ assert.equal(f.viewer.native,'height');
+ assert.equal(f.controller.mode,'height');
+ f.controller.toggleMode('height');
+ assert.equal(f.controller.mode,'off');
  f.controller.close();
 });

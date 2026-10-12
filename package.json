@@ -1,6 +1,6 @@
 {
   "name": "zotero-margin-fit",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "description": "Smart content fitting for the Zotero PDF reader",
   "license": "MIT",
@@ -11,7 +11,7 @@
     "fixtures": "node tests/make-fixtures.cjs",
     "test:integration": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed",
     "test:cache": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript v015-integration.js",
-    "test:ui": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript v016-ui-integration.js",
+    "test:ui": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript v0113-mode-toggle-integration.js",
     "test:background": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript v018-background-integration.js",
     "test:height": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -DriverScript v0112-content-page-integration.js",
     "test:update": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript update-bootstrap.js",

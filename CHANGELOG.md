@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.13 ? 2026-10-12
+
+- Hide the original Reset Zoom toolbar button and replace it in the same position with Fit Width, Fit Height and Detect Margins. Unloading the plugin restores the original.
+- Width/Height are now mutually exclusive on/off toggles. Turning off leaves the current PDF scale and reading position unchanged, and cancels pending automatic fitting.
+- Keep mode selection between readers; when margin detection is disabled, fitting controls use native Zotero page-width/page-height commands.
+- No changes to continuous PDF scrolling, content-page steps, sparse detection or JSONL cache.
+
 ## 0.1.12 ? 2026-10-12
 
 - Preserve all pages in PDF.js continuous-scroll layout, but make PageDown/PageUp target the neighboring *content* page rather than shifting by viewport height.

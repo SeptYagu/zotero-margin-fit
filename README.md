@@ -4,7 +4,15 @@ Smart content fitting for the Zotero PDF reader. Keeps the native **Reset Zoom**
 
 Zotero PDF 阅读器的智能内容适应插件。保留原生 **Reset Zoom**，只新增 **Fit Height / 适合高度** 和 **Detect Margins / 识别边界** 两个控件。
 
-本项目依照 [需求文档](09-智能去白边阅读开关.md) 实现。当前正式版本为 **0.1.6**，使用 Zotero 私有阅读器接口。兼容范围限定为 Zotero 10.0.x。运行测试的具体版本、通过项和待测项见 [验证记录](docs/verification.md)。
+本项目依照 [需求文档](09-智能去白边阅读开关.md) 实现。当前正式版本为 **0.1.7**，使用 Zotero 私有阅读器接口。兼容范围限定为 Zotero 10.0.x。运行测试的具体版本、通过项和待测项见 [验证记录](docs/verification.md)。
+
+## v0.1.7 performance and positioning improvements
+
+- Real Zotero PDF reader: detect the actual visible page first; explicit fitting is no longer blocked by six representative pages.
+- Preload only the two immediately neighboring pages in the direction of travel. For ordinary mixed, scanned, and score PDFs, omit all distant book-wide scanning. Verify text-only page numbers on demand.
+- A 560px detector raster, one-in-four diagonally staggered ink samples, and supported text/ink calibration reduce detection work and improve PDF text-width overestimation; native display resolution remains unchanged.
+- Respect manual pan of the same page until the user leaves it or explicitly requests Fit; suppress tiny automatic horizontal corrections.
+- Read-only, real-library A/B on 18 research PDFs: initial page detection jobs 171 to 52; mean time to first exact page bounds 4.28s to 2.18s versus v0.1.6. See [real-document benchmark](docs/2026-10-11-real-library-18-pdf-ab-benchmark.md). These times include reader startup, not isolated CPU time.
 
 ## 安装与使用
 
@@ -25,8 +33,8 @@ Automatic updates / 自动更新：已安装版本通过 `updates.json` 获取�
 
 ## 实现规则
 
-1. **L1**：25%、50%、75% 三处各取相邻奇偶两页，通常六页，短文档去重。先完成全部样本，再建立保守奇偶预测框；不额外抢先分析当前页。
-2. **L2**：停稳 500 ms 后，按 `当前页 → 后1 → 后2 → 后3 → 前1 → 前2 → 前3` 串行检测。滚动使过时排队任务失效，在途结果可缓存；滚动中不自动写入倍率或位置。
+1. **L1 (adaptive)**: Exact detection of the currently visible page has priority. Only a reliable text-only page with a plausible isolated folio triggers book-wide numbering validation; use cached neighbors and stop as soon as four independent pages confirm the same numbering sequence. Other PDFs skip distant representative-page renders.
+2. **L2 (idle prefetch)**: After 500 ms without user activity, examine only the immediately adjacent next/previous pages (in reading direction first) with a single serialized detector worker. User scrolling cancels stale work; a cached in-flight result is reused when possible.
 3. **L3**：与上一次实际应用倍率比较，安全且差异小于 5% 时保持倍率，只修正当前页位置；用户显式操作绕过死区。必要内容保护优先于死区。
 
 0.1.4 对纯文字 PDF 增加严格的 PDF.js 绘图指令白名单，可靠纯文字页直接使用文字边界，不进行额外低清渲染；包含图像、矢量图、乐谱或未知操作的页面仍执行原有保守渲染检测。字符框与最长边不超过 800 px 的临时低清画布共同检测四边，包含文字框之外的图表、页码和脚注。缓存只存绝对原始框、尺寸、旋转、文件修订和质量。0.1.4 在 Zotero 配置目录的 `marginfit-boundaries/` 保存小型 JSON 缓存（文件指纹、页数、文件大小及修改时间、算法版本校验），再次打开命中后不重新检测；可删除缓存目录而不影响 PDF 或批注。0.1.6 起显示时统一加 **16 PDF 单位** 四侧安全留白，无留白设置。该常量仍需更多真实扫描样本校准。画布用后释放。
@@ -42,7 +50,7 @@ npm test
 npm run build
 ```
 
-正式构建产物为 `dist/zotero-margin-fit-0.1.6.xpi`；公开自动更新源现已指向 0.1.6，并已通过 Zotero 原生后台自动升级测试。GitHub Actions 自动运行核心测试并生成 XPI 构建附件。
+正式构建产物为 `dist/zotero-margin-fit-0.1.7.xpi`；公开自动更新源现已指向 0.1.6，并已通过 Zotero 原生后台自动升级测试。GitHub Actions 自动运行核心测试并生成 XPI 构建附件。
 
 在安装 Zotero 的 Windows 电脑上运行真实阅读器回归：
 

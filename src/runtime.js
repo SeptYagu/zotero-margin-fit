@@ -54,7 +54,8 @@ var MarginFitRuntime = (() => {
       this.listen(this.win, "pointerup", () => { this.dragging = false; this.arm(); }, true);
       this.listen(this.win, "pointercancel", () => { this.dragging = false; this.arm(); }, true);
       const handleKey=event => {
-        if (this.host.enabled() && this.mode === "height" &&
+        // Physical-page navigation belongs to Fit Height, not Detect Margins.
+        if (this.mode === "height" &&
             (event.key === "PageDown" || event.key === "PageUp") &&
             !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey &&
             !event.target?.closest?.("input,textarea,select,[contenteditable='true'],[role='textbox'],.annotationEditorLayer")) {
@@ -63,7 +64,10 @@ var MarginFitRuntime = (() => {
           const from=this.page();
           const p=Math.max(1,Math.min(this.session.count,
             from+(event.key === "PageDown" ? 1 : -1)));
-          if(p!==from)this.snapToContent(p,from).catch(error=>this.failure(error));
+          if(p!==from) {
+            const move=this.host.enabled() ? this.snapToContent(p,from) : this.snapToPage(p,from);
+            move.catch(error=>this.failure(error));
+          }
           return;
         }
         if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", " "].includes(event.key)) this.input(true);
@@ -179,12 +183,55 @@ var MarginFitRuntime = (() => {
           this.manual = false;
           this.userHeldPage = null;
           this.session.visit(p, this.viewer.getPageView(p-1).viewport.rotation);
+          if (this.mode === "width" && this.host.enabled()) {
+            const token=this.epoch;
+            // This is not ordinary in-page scrolling: the PDF page changed.
+            // Recompute horizontal position once; later user movements cancel it.
+            this.alignWidthPage(p,token).catch(error=>this.failure(error));
+          }
         }
         this.lastPage = p;
         this.host.indexer?.onNavigation(this,p);
         this.arm();
       };
       schedule(this.epoch);
+    }
+    async alignWidthPage(p,token) {
+      // Read hot geometry first (no new raster job on cached pages), and honor
+      // input epochs: if the user already moved this page, leave it untouched.
+      const rotation=this.viewer.getPageView(p-1).viewport.rotation;
+      const record=await this.session.visible(p,rotation,()=>
+        !this.closed && this.host.enabled() && token===this.epoch);
+      if (!record || this.closed || token!==this.epoch || this.mode!=="width" ||
+          this.userHeldPage===p || this.page()!==p)return;
+      await this.apply(record,p,token,true,false,true);
+      if(token===this.epoch)this.appliedEpoch=token;
+    }
+    async snapToPage(p,previous=this.lastPage) {
+      // Detection OFF: step exactly one physical PDF page without analyzing ink.
+      // Keep Zotero's original page-height fit and the full continuous scrollbar.
+      if (this.closed || this.host.enabled() || this.mode !== "height") return;
+      p=Math.max(1,Math.min(this.session.count,p));
+      if (p===previous)return;
+      this.readingDirection=p>previous?1:-1;
+      const token=++this.epoch;
+      this.cancelTimer();
+      this.userHeldPage=null;this.manual=false;
+      this.lastInput=this.host.now();this.lastPage=p;
+      this.muted=true;
+      try {
+        this.viewer.currentPageNumber=p;
+        // Restore native physical-page height fitting, even across mixed sizes.
+        this.view.zoomPageHeight();
+        await new Promise(resolve=>this.host.setTimeout(resolve,0));
+        if(this.closed || token!==this.epoch || this.host.enabled())return;
+        const page=this.viewer.getPageView(p-1);
+        const rect=page.div.getBoundingClientRect(),root=this.container.getBoundingClientRect();
+        const center=this.container.scrollTop + rect.top-root.top +
+          rect.height/2 - this.container.clientHeight/2;
+        this.container.scrollTop=Math.max(0,center);
+        this.lastPage=p;
+      } finally {if(token===this.epoch)this.muted=false;}
     }
     async snapToContent(p,previous=this.lastPage) {
       if (this.closed || !this.host.enabled() || this.mode !== "height") return;
@@ -383,7 +430,7 @@ var MarginFitRuntime = (() => {
           Math.max(0,this.container.scrollWidth-this.container.clientWidth)));
         // Adjacent page layouts often differ by only a few pixels. Do not
         // chase that precision: it produces visible jitter and forced layout.
-        const deadband = explicit ? 0.5 : 4; // CSS pixels, not PDF coordinates
+        const deadband = explicit && !navigation ? 0.5 : 4; // auto page-turn keeps 4px jitter guard
         let horizontalWritten = false, verticalWritten = false;
         if (Math.abs(targetX-this.container.scrollLeft) >= deadband) {
           this.container.scrollLeft = targetX;
@@ -406,8 +453,8 @@ var MarginFitRuntime = (() => {
         };
         // At unchanged scale leave scrollTop completely untouched (including subpixel rounding).
         // Only an explicit fit aligns content; automatic zoom compensates to retain the reading anchor.
-        if (explicit || scaled) {
-          const y = explicit ? (this.mode === "height"
+        if ((explicit && !(navigation && this.mode === "width")) || scaled) {
+          const y = (explicit && (this.mode === "height" || !navigation)) ? (this.mode === "height"
             ? top + (box[1]+box[3])*scale/2 - this.container.clientHeight/2
             : top + box[1]*scale - 8)
             : top + anchorY*scale - (centerY-root.top);

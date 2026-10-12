@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.16 ? 2026-10-12
+
+- Fix cross-page Width Fit: automatically re-center detected content after navigating to a different PDF page, while keeping manual horizontal movement within the same page authoritative. The original Berger Musica Ficta page 15 previously showed ~97px left/right imbalance after normal navigation; now ~0.8px, without a second button click.
+- Uncouple one-page Page Down / Page Up navigation from Detect Margins. With Fit Height ON and detection OFF, use native physical-page boundaries and native height fitting; with detection ON, retain content-aware landing. Real Windows OS key events verified 8 -> 9 -> 8.
+- Reduce Fit Height top/bottom safety margin to 8 PDF units; retain full 16-unit horizontal padding and all four-edge detection/cache data. No changes to existing all-open background indexing.
+- Add original Berger page 15 integration and no-detection OS key regression tests; 99-unit and native suites rerun.
+
 ## 0.1.15 ? 2026-10-12
 
 - Restore user-required all-open background completion: active PDF first, then other opened PDFs, only stopping after all are cached.

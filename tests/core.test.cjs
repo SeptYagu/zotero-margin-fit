@@ -40,7 +40,7 @@ test('dead zone yields to safety, explicit commands, and height axis',()=>{
   const vp={width:132,height:172};
   assert.equal(C.scaleDecision(r,'width',vp,1.02,1.02).scale,1);
   assert.equal(C.scaleDecision(r,'width',{width:120,height:156},1,1,true).change,true);
-  assert.equal(C.scaleDecision(r,'height',{width:40,height:344},1,1).scale,2);
+  assert.equal(C.scaleDecision(r,'height',{width:40,height:344},1,1).scale,344/156);
 });
 test('primary page chooses visible area and keeps the previous page on a close tie',()=>{
   assert.equal(C.primaryPage([{id:2,area:100},{id:3,area:98}],3,1),3);

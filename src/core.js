@@ -13,9 +13,10 @@ var MarginFitCore = (() => {
     if (!b) return [...a];
     return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
   }
-  function safeBox(raw, width, height) {
-    return [clamp(raw[0] - SAFETY, 0, width), clamp(raw[1] - SAFETY, 0, height),
-      clamp(raw[2] + SAFETY, 0, width), clamp(raw[3] + SAFETY, 0, height)];
+  const HEIGHT_SAFETY = 8; // Height Fit only: smaller vertical gutter, still protective.
+  function safeBox(raw, width, height, xPad = SAFETY, yPad = SAFETY) {
+    return [clamp(raw[0] - xPad, 0, width), clamp(raw[1] - yPad, 0, height),
+      clamp(raw[2] + xPad, 0, width), clamp(raw[3] + yPad, 0, height)];
   }
   function samples(count) {
     const result = [];
@@ -416,7 +417,8 @@ var MarginFitCore = (() => {
   function scaleDecision(record, mode, viewport, actual, anchor, explicit = false) {
     const fitRaw = mode === "width" && Array.isArray(record.widthFitRaw)
       ? record.widthFitRaw : record.raw;
-    const safe = safeBox(fitRaw, record.width, record.height);
+    const safe = safeBox(fitRaw, record.width, record.height,
+      SAFETY, mode === "height" ? HEIGHT_SAFETY : SAFETY);
     const available = mode === "height" ? viewport.height : viewport.width;
     const dimension = mode === "height" ? safe[3] - safe[1] : safe[2] - safe[0];
     const target = Math.min(MAX_SCALE, Math.max(0.1, available / Math.max(1, dimension)));

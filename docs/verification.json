@@ -1,6 +1,6 @@
 {
   "product": "MarginFit",
-  "productVersion": "0.1.15",
+  "productVersion": "0.1.16",
   "host": "Zotero 10.0.6 Windows",
   "defaultNativeIntegration": {
     "passed": true,
@@ -111,7 +111,10 @@
     "hardwareKeyboardDirectlyPressed": false,
     "allOpenedPDFIndexing": "Foreground B 1/1 first, then inactive A 24/24 without tab selection; scanner stops only after all open PDFs complete.",
     "displayOnlyAnnotation": "Print-intent background detected geometry protects display-only annotations and matches foreground bounds within 3 PDF units.",
-    "fitOffIndexing": "Fit OFF leaves indexing active while Detect Margins ON, no zoom/scroll movement; Detect Margins OFF suspends indexer."
+    "fitOffIndexing": "Fit OFF leaves indexing active while Detect Margins ON, no zoom/scroll movement; Detect Margins OFF suspends indexer.",
+    "bergerPage15": "Original 19-page Berger PDF page14->15: width margins delta improved from ~97 CSS pixels to ~0.8; manual +31px in-page movement preserved",
+    "heightMargin": "Height Fit safe top/bottom padding 8 PDF units, width safety unchanged 16 PDF units",
+    "heightWithoutDetectKeys": "Trusted Windows OS PageDown 8->9 and PageUp 9->8 with Detect Margins OFF and Height Fit ON; ArrowDown native"
   },
   "algorithmDecisions": {
     "sixPageParityPrediction": "not adopted: 20/135 heldout reliable ink references exceeded protected prediction by >2 PDF units",

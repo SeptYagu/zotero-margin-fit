@@ -1,6 +1,13 @@
-# MarginFit ? Current verification (v0.1.15)
+# MarginFit ? Current verification (v0.1.16)
 
 The older v0.1.2 records remain archived in [historical verification](verification-v0.1.2-legacy.md). This page is maintained for the CURRENT release.
+
+## 0.1.16 validation (Windows Zotero 10.0.6)
+
+- Real original 19-page Berger `Musica Ficta` copy: page 14 -> 15 native navigation in Width Fit showed 97px left/right difference before this fix; with automatic cross-page horizontal fit, 0.8px after. Explicit Fit remains 0.8px. A manual 31px horizontal move inside page 15 was not overridden.
+- With Detect Margins OFF and Fit Height ON, OS-level trusted Windows PageDown and PageUp were delivered to the current PDF's native-page handler: exactly 8 -> 9 -> 8; native ArrowDown left intact. With detection ON, existing content-aware stepping remains.
+- Fit Height uses 8 PDF-unit upper/lower safe gutter instead of 16, retaining 16 horizontally. Browser's additional scrollbar/viewport reserve remains in force.
+- v0.1.16 test and release details: [report](2026-10-12-v0116-berger-height-page-keys.md).
 
 ## Native Zotero 10.0.6 Windows tests
 

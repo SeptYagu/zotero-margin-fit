@@ -1,4 +1,4 @@
-# MarginFit ? Current architecture (v0.1.15)
+# MarginFit ? Current architecture (v0.1.16)
 
 This document describes the current shipped design, not the historical v0.1.0?v0.1.13 proposals. Archived v0.1.2 architecture: [historical version](architecture-v0.1.2-legacy.md). Source of truth: `src/core.js`, `src/runtime.js` and `src/persistent-cache.js`.
 
@@ -8,9 +8,9 @@ The native Zotero Reset Zoom button is hidden with the plugin toolbar's styleshe
 
 ## Fitting and scrolling
 
-Current page exact bounds are used in PDF.js scale-one viewport coordinates. Visible page first, followed by only immediate neighbor prefetch. Sparse 560px detector with conservative text/ink reconciliation, dirty-border rejection and full-page fallback. 16 PDF unit safety padding at fit time. A verified isolated folio can be ignored in **horizontal** fit while preserving the vertical extent. No eager six-page parity prediction is applied to unmeasured pages.
+Current page exact bounds are used in PDF.js scale-one viewport coordinates. Visible page first, followed by only immediate neighbor prefetch. Sparse 560px detector with conservative text/ink reconciliation, dirty-border rejection and full-page fallback. 16 PDF-unit safety on the horizontal axis, with a tighter 8 PDF-unit vertical safety gutter for Height Fit. A verified isolated folio can be ignored in **horizontal** fit while preserving the vertical extent. No eager six-page parity prediction is applied to unmeasured pages.
 
-Native PDF.js multi-page vertical scroll is retained. Free wheel/touchpad/up/down motions remain available within a page, with one content-center landing after crossing a physical page. Page Down/Up each move exactly one physical PDF page, aligning detected content. In Zotero 10.0.6 on Windows, actual OS PageDown/PageUp events are dispatched to the **main Chrome window**, while ArrowDown reaches the inner PDF frame. Therefore a scoped top-level capture route delegates PageDown/Up to the selected reader's `snapToContent`; text editing and modified shortcuts are excluded. The PDF document layout is never changed to single-page PAGE mode.
+Native PDF.js multi-page vertical scroll is retained. Free wheel/touchpad/up/down motions remain available within a page, with one content-center landing after crossing a physical page. Page Down/Up each move exactly one physical PDF page: detected-content landing if Detect Margins is ON; native physical-page-height landing when Detect Margins is OFF. Width mode re-centers only once on a true page change and never overrides manual movement within the new page. In Zotero 10.0.6 on Windows, actual OS PageDown/PageUp events are dispatched to the **main Chrome window**, while ArrowDown reaches the inner PDF frame. Therefore a scoped top-level capture route delegates PageDown/Up to the selected reader's `snapToContent`; text editing and modified shortcuts are excluded. The PDF document layout is never changed to single-page PAGE mode.
 
 ## Cached geometry
 

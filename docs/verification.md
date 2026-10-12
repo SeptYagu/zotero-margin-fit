@@ -1,56 +1,26 @@
-# 首版验证记录
+# MarginFit ? Current verification (v0.1.14)
 
-日期：2026-10-08（America/Indianapolis）。版本：MarginFit 0.1.2 实验版。
+The older v0.1.2 records remain archived in [historical verification](verification-v0.1.2-legacy.md). This page is maintained for the CURRENT release.
 
-**26 项 Node 核心测试与 70 项真实 Zotero 阅读器检查全部通过。** 实机环境是 Windows 上新启动的 **Zotero 10.0.6**；需求文档中的 10.0.5 未在正式用户配置中安装或测试。完整机器可读结果见 [verification.json](verification.json)。
+## Native Zotero 10.0.6 Windows tests
 
-另有 **9 项公开更新源与原生后台自动升级检查通过**，记录见 [update-verification.json](update-verification.json)。独立配置先安装公开 0.1.1，通过已安装插件的原生更新 URL 发现 0.1.2；允许自动更新后触发 Zotero 原生后台检查，未直接调用新版安装包的 install()。Zotero 自行下载、校验并启用新版，检测开关和宽／高方向偏好保持，更新后的实际工具栏显示英文在前、中文在后。此项验证后台升级流程，未等待定时器自然触发，也未修改正式配置的更新设置。
+- **99/99** Node unit tests passed with new active-reader ownership and inactive-pane no-refit checks.
+- **78/78** default Zotero native integration checks passed, with the current three-button toolbar expectation and original native button hidden. Retained text selection, highlight coordinates, rotation, split panes, detached windows, PDFs unchanged, fallback detection, fit and unload/reinstall checks. The detached-reader startup timeout was raised only for cold profile startup, without dropping assertions.
+- **34/34** plugin toolbar mode-toggling checks passed in prior v0.1.13 tests (same UI code).
+- **28/28** content-height/continuous-scroll integration checks passed on the candidate.
+- **10/10** background indexing/JSONL checks passed. One native debugger transport timed out *after* writing a valid `passed: true` result file; Zotero assertions, not transport error, are authoritative in this harness.
+- **24/24** JSONL cache/faraway folio checks passed.
+- **Active-reader end-to-end**: opening document B makes B the index target, switching tabs moves the one worker to A and back, A does not index while B active. Once B's 24 pages are complete, no hidden PDF renders; selecting A resumes A.
+- **Windows OS-level keyboard injection** into the confirmed foreground disposable Zotero window produced two actual MarginFit `snapToContent` calls (8 -> 9 and 9 -> 8). ArrowDown was delivered as native trusted input without a whole-page MarginFit call. This verifies the input route; it is NOT the same as testing the user's physical hardware.
 
-## 已通过
+## A/B analysis: do not switch algorithms yet
 
-| 范围 | 验证内容 |
-|---|---|
-| 原生入口 | 保留 Reset Zoom 按钮；React 根据包装的状态回调启用按钮；工具栏、Ctrl+0、主 View 菜单宽高命令进入智能缩放 |
-| 新增按钮 | 计算样式确认排除窗口拖动；可见中心点可命中按钮；实际 DOM 点击高度按钮完成适应，点击识别按钮切换 ON/OFF 并更新 pressed 状态 |
-| 双语顺序 | 已安装插件说明、按钮 tooltip、无障碍名称、开关 ON/OFF 与异常页回退提示均英文在前、中文在后 |
-| 自动更新 | 公开更新源版本、下载地址、兼容范围及 SHA-256 与已发布包一致；Zotero 原生后台从 0.1.1 升级 0.1.2，偏好和工具栏状态保留 |
-| 恢复阅读 | 从第 8 页中部打开 24 页文档；先分析 `[5,6,11,12,17,18]` 六页；首次适应仍是第 8 页；预测与精算前后页内阅读锚点误差小于 2 个 CSS 像素 |
-| 四边检测 | 左右非对称、奇偶页交替装订白边、上下留白、正文外图形、脚注和孤立页码；扫描页薄笔画；原生和手动旋转 |
-| 调度 | 单并发；L1 先于 L2；当前页及前后三页的固定优先级；主动适应后仍预读邻页；缓存去重；过时结果只缓存，不覆盖新请求 |
-| 滚动稳定 | 连续跨越十页，所有插件倍率和位置写入均冻结；停稳后倍率不变时保持精确 scrollTop 且无纵向赋值；停在页间间隙时检测及预读但不吸附／缩放；自身定位不触发循环 |
-| L3 | 单元测试验证 100%→104%→108%→112% 以实际锚点累计比较；内容保护和显式命令可以绕过死区 |
-| 宽高方向 | 原生 PDF.js 单位换算正确；宽高切换复用缓存；高度模式下宽图可水平滚动 |
-| 阅读数据 | 实际文本层 Range 选择；保存的高亮批注坐标保持；适应前后 PDF 字节完全一致 |
-| 视图生命周期 | 垂直分屏视图独立锚点；移除分屏取消任务；独立阅读窗口菜单接管；关闭独立窗口不破坏原视图 |
-| 清理 | 关闭识别恢复原生 page-width/page-fit 与按钮 disabled 状态；禁用恢复方法及统计回调；移除控件和样式；再次启用不重复；卸载清理 |
-| 检测暂停 | L1 未完成时点击 OFF，只允许在途单页完成，无后续检测或迟到视图更新；再次点击 ON 续算 L1，各样本仅检测一次 |
-| 回退 | 空白页、深色铺底页不作为可信边界处理 |
-| 真实论文 | [Attention Is All You Need](https://arxiv.org/pdf/1706.03762)，本次下载共 15 页，包含文字、公式和图表；L1/L2 检测及宽高适应运行通过 |
+See [experimental evidence](2026-10-12-v0114-verification-and-ab-results.md).
 
-核心测试独立验证排序、旋转缓存失效、属性描述符恢复、后装插件 Hook 不被覆盖、滚动 epoch 和迟到结果取消。实机检查使用 headless Zotero 的真实 PDF.js、React、插件管理器与数据库；输入事件由测试脚本发出，不等于所有物理输入设备的人工验收。
+- Parity six-page model: 138 held-out samples in 18 real research PDFs, 135 usable comparisons. A low-resolution independent reference found 20 predicted crops beyond the 16-PDF-unit safety padding plus 2-unit tolerance. Not safe as a replacement for precise page bounds.
+- Complex mixed-pages operator-list-first versus raster-first: 20 page pairs; raster-first won on 17 pairs (normal arm order) and 16 pairs (reversed order), with paired median savings of 49ms and 85ms; render pixel hashes matched for all pages. Not a global win across all document types.
+- Generated actual pure-text PDF: existing fastpath 3-4 ms versus naive raster-first 129-183 ms on three matching pages. Unconditional raster-first REJECTED. A cheap reliable classifier must be separately demonstrated before selective adoption.
 
-## 本次性能数据
+## Limitations
 
-24 页生成文档冷启动：L1 六页检测 **1,103 ms**；从附件导入开始到首次智能适应 **5,353 ms**，后者包含 Zotero 导入、创建阅读器和初始布局时间。首批逐页检测为 **140–222 ms**（当前页另为 118 ms）；已有边界的两个宽高适应命令合计 **174 ms**，包含原生视图定位等待。公开论文第 1 页检测为 **195 ms**。这些数值是本次电脑／测试负载的测量，不是性能保证。
-
-600×800 样本每个 RGBA 缓冲为 **1,920,000 字节**。临时画布、getImageData 和跨 compartment 拷贝各有开销，不能把一个缓冲的大小当作完整检测峰值。
-
-测试套件整个 Zotero 进程树的私有内存采样最大值为 **2,055,507,968 字节（约 1.91 GiB）**，覆盖多个 PDF 标签页、分屏、独立窗口、Zotero 数据库和原生页面渲染。按约 500 ms 加采样开销的间隔观测，可能漏掉短时峰值；这不是 MarginFit 单页检测的独立内存用量。跨语料、重度扫描以及长时间会话的性能仍需继续测量。
-
-## 待人工／平台回归
-
-- macOS Cmd+0、Linux、物理触摸板惯性滚动、特殊双击缩放手势。
-- PDF 右键菜单的实际弹出与点击、目录／搜索／引用跳转、多种批注的点击编辑与拖动。
-- 双页展开、横向／包裹滚动、水平分屏，以及大量复杂扫描、轻度倾斜、不同页尺寸的真实书籍。
-- 8 单位固定留白在更多细字、浅色图表和扫描图像上的校准；异常背景继续采取保守回退。
-
-目前适合在普通论文和干净扫描件上试用；不宣称完成上述所有平台和交互的发布级认证。按用户要求，从 0.1.2 起实验版本也进入自动更新源；原生更新机制使用版本、兼容范围和 SHA-256 校验值获取更新。
-
-## 复现
-
-```sh
-npm test
-npm run test:integration
-```
-
-集成测试自动生成可公开使用的样本，不分发下载的论文。如果要复现真实论文检查，可将上述 arXiv PDF 保存为 `.test-harness/fixtures/attention-is-all-you-need.pdf`，测试会额外执行该用例。测试 profile 和数据库均是独立临时数据，不触碰正式文献库。
+OS-level simulated trusted keypresses are not a full physical input-device test. Active-window detection verified for two tabs, not every operating-system window manager. No evidence supports enabling the rejected parity/raster-first variants in v0.1.14. No user PDF/annotation or production Zotero profile was modified by tests.

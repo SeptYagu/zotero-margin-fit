@@ -1,16 +1,14 @@
-# MarginFit v0.1.13 ? Fit Width / Height toggles
+# MarginFit v0.1.14 ? Activity priority, trusted keys, repaired acceptance
 
-Regular public release for Zotero 10.0.5?10.0.x.
+Regular release for Zotero 10.0.5?10.0.x.
 
-- The native Reset Zoom toolbar button is hidden. The plugin's Fit Width button takes its original toolbar position, with Fit Height and Detect Margins beside it. On plugin shutdown, the native button is restored.
-- Fit Width and Fit Height are mutually exclusive on/off switches. Clicking the active button again turns that mode off, preserving zoom and scroll. Clicking the other activates it.
-- Detect Margins is independent. With detection OFF, the two fit buttons call native Zotero width/height fitting.
-- The fit-mode state is kept when opening new PDFs. Turning it off cancels pending automatic adjustments.
-- Continuous scroll, full document scrollbar, content-page stepping, specialized folio handling and JSONL cache are unchanged.
+- **PageDown / PageUp:** The real Windows OS keyboard input route now reaches the selected PDF, even when Zotero dispatches those keys to the main Chrome window rather than the reader iframe. One press moves exactly one content page. Arrow keys still permit normal fine scrolling.
+- **Idle indexing:** One shared cooperative worker finishes the currently selected PDF only. It switches promptly with tab focus; after that PDF is complete, hidden readers are not scanned (their PDF.js rendering may be suspended). Selecting another unfinished PDF resumes indexing there.
+- **Inactive PDF protection:** Shared fit-mode preference updates no longer cause a hidden/split pane to change zoom or position.
+- **Tests and docs:** Fix stale default native integration UI assertions; retain remaining native PDF behaviors, increase isolated detached reader cold-start wait. Replace stale current-state documents while archiving earlier historical reports.
+- **Existing features unchanged:** Three in-place toggle controls, continuous full-document scroll, content-page transitions, sparse detection, faraway page-number-aware Width Fit and JSONL cache.
+- **Algorithm decisions:** Real PDF A/B did *not* authorize activation of six-sample parity-based cropping or unconditional raster-first; the current precise-page and strict pure-text paths remain.
 
-## Verification
-- 97/97 unit tests passed.
-- 34/34 isolated Zotero 10.0.6 toolbar integration checks passed, including native button hiding/restoring, width/height toggling, detection-off fallback, delayed adjustment cancellation, and new-PDF mode state.
-- 28/28 native continuous content-page navigation checks passed.
-- 10/10 native background indexing and JSONL cache checks passed.
-- Physical keyboard/trackpad device testing remains separate from these synthetic integration tests.
+Verification: 99/99 unit tests, 78/78 complete native Zotero acceptance checks, 28/28 height/navigation checks, 34/34 UI checks and 24/24 cache checks, 10/10 idle/JSONL checks; native two-PDF activity and OS-injected trusted PageDown/PageUp navigation exercises recorded. Physical keyboard hardware and macOS/Linux input routes remain unverified.
+
+All tests used disposable Zotero profiles and PDF copies, not production data.

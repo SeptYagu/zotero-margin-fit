@@ -1,113 +1,56 @@
 # MarginFit
 
-Smart content fitting for the Zotero PDF reader. Hides native **Reset Zoom** and replaces it in place with **Fit Width**, **Fit Height**, and **Detect Margins**.
+**Smart content fitting and persistent margin detection for Zotero 10 PDF readers.**
 
-Zotero PDF ???????????????? **Reset Zoom**??????? **???? / ???? / ????** ?????????????????
+MarginFit 隐藏 Zotero 原生 Reset Zoom，并在同一位置提供 **适合宽度、适合高度、识别边界** 三个按钮。它保留完整 PDF 的连续滚动、页内微调和阅读位置。
 
-本项目依照 [需求文档](09-智能去白边阅读开关.md) 实现。当前正式版本为 **0.1.8**，使用 Zotero 私有阅读器接口。兼容范围限定为 Zotero 10.0.x。运行测试的具体版本、通过项和待测项见 [验证记录](docs/verification.md)。
+## Current release: v0.1.14
 
-## v0.1.13 Fit toggle modes
+The original Zotero Reset Zoom button is hidden while MarginFit runs; it is restored when the add-on is disabled or uninstalled. The plugin supplies its own **Fit Width**, **Fit Height** and **Detect Margins** controls in the original toolbar location.
 
-- Hide native Reset Zoom in its original slot; plugin-owned Fit Width, Fit Height and Detect Margins take its place. Plugin shutdown restores the original.
-- Fit modes are mutually exclusive and toggle off on a second click; off preserves zoom and reading position.
-- When margin detection is disabled, Width and Height use the native Zotero fit functions.
-- Existing full-document scrolling, content-page navigation and cache are unchanged.
+Fit Width and Fit Height are mutually exclusive **ON/OFF toggles**. Click the active fit again to turn it off without altering the current zoom or scroll position. Switching to the other mode activates that fit. With Detect Margins disabled, the fit buttons use the original Zotero page-width/page-height functions.
 
-## v0.1.12 content-page stepping
+When detected-content Fit Height is active, the entire PDF remains in native continuous layout, including the full-document scrollbar. Small wheel/touchpad movements and Up/Down arrows remain free within a page. Crossing into a different page aligns the newly visible page to its content. Page Down / Page Up step one detected-content page at a time; Windows main-window key routing is supported from v0.1.14.
 
-- Keep the full PDF and full-length scrollbar in native continuous scrolling.
-- Fine-grained wheel, touchpad and Up/Down arrows can move within a page without snapping back.
-- Once normal scrolling enters the next/previous page, align to that page's detected content center after the existing input quiet-window.
-- PageDown and PageUp directly target the next or preceding page's content center, not a viewport-sized scroll. Editing fields and modified selection shortcuts retain native handling.
+## Detection and cache
 
-## v0.1.11 continuous Fit Height
+- The visible page is detected first, followed by its immediate neighbors. The sparse 560-pixel-long-edge raster detector and reliable text geometry provide four content edges.
+- Text-only PDF pages may use a strict drawing-operator allowlist to avoid unnecessary rasterization. Complex scans, graphics, dirty borders and uncertain pages use conservative fallbacks.
+- Fit applies a **16 PDF-unit safety margin**, preserving printed page numbers where needed. An identified faraway folio may be excluded from **width** fitting while the full vertical content extent is retained.
+- A compact append-only **JSONL** cache stores four page coordinates, keyed by PDF.js fingerprints and page count. Older snapshot JSON caches are intentionally ignored without migration.
+- A single idle indexer scans missing pages in the **currently active PDF only**, keeping all interaction responsive. When the active PDF finishes, the idle worker stops; selecting another PDF resumes indexing there. Hidden readers are not rasterized.
+- No OCR, network analysis, PDF-content rewriting or annotation-coordinate changes.
 
-- Fit Height uses the detected content bounds while retaining native PDF.js continuous vertical scrolling, full-document scrollbar, all PDF pages, keyboard navigation, mouse-wheel and touchpad behavior.
-- The removed v0.1.8?v0.1.10 experimental PAGE mode and custom wheel-to-page navigation are no longer used.
-- If a previous release left the reader in PAGE mode, activating Fit Height restores native continuous scrolling.
+## Installation
 
-## v0.1.10 Fit Height page-lock fix (superseded by v0.1.11)
+Get the current XPI from [GitHub Releases](https://github.com/SeptYagu/zotero-margin-fit/releases), then use Zotero **Tools → Plugins → Install Add-on From File**. Existing installations use Zotero's automatic update feed at `updates.json`. The project targets Zotero 10.0.x private reader interfaces.
 
-- In Fit Height, manual zoom now exits PDF.js PAGE mode into native continuous scrolling, so the rest of the PDF cannot become inaccessible.
-- A new explicit Fit Height request re-enters the intentional one-page-per-turn mode; ordinary wheel page turning remains unchanged.
+## Build and verification
 
-## v0.1.9 append-only boundary cache
-
-- Persist compact four-coordinate records to append-only JSONL; no repeated whole-book JSON rewrite.
-- Previously saved JSON caches are intentionally ignored and are not deleted. A page will be indexed again on the new version.
-- Preserve long-distance page-number Width Fit, foreground priority and idle book indexing.
-
-## v0.1.8 content-height page mode and dirty scan support
-
-- Native one-page Fit Height mode with immediate page turns, content-fitting and native continuous-scroll restore.
-- Background indexing of uncached pages while idle, persistently reusing four-coordinate fitting rectangles.
-- Retain special far-away page-number Width Fit even after closing/reopening the PDF.
-- Handle mixed-page-size scans with dirty edges, dark corners and isolated scanner streaks; remove duplicate toolbar buttons.
-- The [release policy](docs/RELEASE-POLICY.md) publishes completed iterations as regular XPI Releases for rapid direct updates.
-- All reviews and changes follow the [mandatory engineering principles](docs/ENGINEERING-PRINCIPLES.md): evidence first, minimal changes, measured performance, and no speculative overengineering.
-
-## v0.1.7 performance and positioning improvements
-
-- Real Zotero PDF reader: detect the actual visible page first; explicit fitting is no longer blocked by six representative pages.
-- Preload only the two immediately neighboring pages in the direction of travel. For ordinary mixed, scanned, and score PDFs, omit all distant book-wide scanning. Verify text-only page numbers on demand.
-- A 560px detector raster, one-in-four diagonally staggered ink samples, and supported text/ink calibration reduce detection work and improve PDF text-width overestimation; native display resolution remains unchanged.
-- Respect manual pan of the same page until the user leaves it or explicitly requests Fit; suppress tiny automatic horizontal corrections.
-- Read-only, real-library A/B on 18 research PDFs: initial page detection jobs 171 to 52; mean time to first exact page bounds 4.28s to 2.18s versus v0.1.6. See [real-document benchmark](docs/2026-10-11-real-library-18-pdf-ab-benchmark.md). These times include reader startup, not isolated CPU time.
-
-## 安装与使用
-
-从 [Releases](https://github.com/SeptYagu/zotero-margin-fit/releases) 下载 `.xpi`，在 Zotero 的“工具 → 插件”中选择“从文件安装插件”。也可以从源码自行构建。
-
-Automatic updates / 自动更新：已安装版本通过 `updates.json` 获取新版本及 SHA-256 校验值。允许插件自动更新时，由 Zotero 原生更新机制检查、下载和安装；也可在插件管理器中手动检查更新。GitHub Release 的预发布标记不替代此更新源，更新列表必须包含版本条目。
-
-- 默认开启识别边界；开关偏好跨文档保存。打开 PDF 后自动按最近的宽度／高度方向适应，默认宽度。
-- 原生 Reset Zoom、Ctrl/Cmd+0 和适合页宽菜单走同一个内容宽度入口。
-- 新增高度按钮和适合页高菜单按实际内容高度缩放；需要时可以横向滚动。
-- 关闭识别后使用原生页宽／页高行为，关闭动作不立即移动当前阅读位置。
-- 手动缩放会暂停当前页的自动适应；进入另一主要阅读页、切换开关、调整视窗或主动使用适应按钮后恢复。
-- 停稳后倍率不变时保持纵向位置；必要的自动缩放保留当前阅读锚点。停在两页之间时继续检测和预读，延后视图适应，不吸附到某页。只有主动点击适应按钮才纵向对齐内容。
-- 主动适应后仍会预读邻页；关闭识别立即暂停后续检测，在途单页可以完成并缓存，重新开启复用已有样本。
-- 页面背景复杂或无法可靠识别时保留当前可读视图，开关 tooltip 显示简短提示。
-
-插件只改变原生缩放和滚动位置，不写入 PDF 或批注，不联网分析、不调用 OCR。Zotero 自己仍会按原生行为保存阅读位置。此版本是“智能适合内容”，原 PDF 页面布局和连续阅读中的页间空白占位仍然存在。
-
-## 实现规则
-
-1. **L1 (adaptive)**: Exact detection of the currently visible page has priority. Only a reliable text-only page with a plausible isolated folio triggers book-wide numbering validation; use cached neighbors and stop as soon as four independent pages confirm the same numbering sequence. Other PDFs skip distant representative-page renders.
-2. **L2 (idle prefetch)**: After 500 ms without user activity, examine only the immediately adjacent next/previous pages (in reading direction first) with a single serialized detector worker. User scrolling cancels stale work; a cached in-flight result is reused when possible.
-3. **L3**：与上一次实际应用倍率比较，安全且差异小于 5% 时保持倍率，只修正当前页位置；用户显式操作绕过死区。必要内容保护优先于死区。
-
-0.1.4 对纯文字 PDF 增加严格的 PDF.js 绘图指令白名单，可靠纯文字页直接使用文字边界，不进行额外低清渲染；包含图像、矢量图、乐谱或未知操作的页面仍执行原有保守渲染检测。字符框与最长边不超过 800 px 的临时低清画布共同检测四边，包含文字框之外的图表、页码和脚注。缓存只存绝对原始框、尺寸、旋转、文件修订和质量。0.1.4 在 Zotero 配置目录的 `marginfit-boundaries/` 保存小型 JSON 缓存（文件指纹、页数、文件大小及修改时间、算法版本校验），再次打开命中后不重新检测；可删除缓存目录而不影响 PDF 或批注。0.1.6 起显示时统一加 **16 PDF 单位** 四侧安全留白，无留白设置。该常量仍需更多真实扫描样本校准。画布用后释放。
-
-采用 PDF.js 原生缩放及滚动容器定位，不对 canvas、文本层或批注层施加 CSS 缩放。只在 PDFView 实例上可逆包装缩放方法及状态回调，禁用／卸载时恢复。每个视图维护独立缩放锚点，文件重开或修订后使用新缓存。
-
-## 开发与验证
-
-无需运行时依赖或 npm 包安装，Node.js 20+ 即可：
+Requires Node.js 20+ for build and unit testing, and Zotero 10.0.x for native integration:
 
 ```sh
 npm test
 npm run build
-```
-
-Official build: dist/zotero-margin-fit-0.1.13.xpi. Zotero automatic updates use the public feed once the GitHub Release XPI and SHA-256 have been verified.
-
-在安装 Zotero 的 Windows 电脑上运行真实阅读器回归：
-
-```sh
 npm run test:integration
+npm run test:ui
+npm run test:height
+npm run test:background
+npm run test:cache
+npm run test:active
 ```
 
-发布新版本时，先构建并上传匹配版本的 XPI，再执行 `npm run update:feed` 生成版本、下载地址与实际包的 SHA-256 校验值，提交并推送 `updates.json`。可用 `npm run test:update` 在隔离配置中安装公开旧版，通过 Zotero 原生更新检查、下载、校验和安装新版，并检查偏好是否保留；该测试依赖已发布的安装包与公开更新源。
+Native tests create **disposable Zotero profiles** and import generated PDF copies. They do not modify your production Zotero database or PDF files.
 
-测试新建临时 profile 和独立数据库，安装 XPI、导入自行生成的 PDF、验证检测／缩放／滚动／清理，不使用正式文献库。日志保存在忽略的 `.test-harness/`；数据库放在本机临时目录，避免 OneDrive 上的数据库启动限制。可通过 `tests/run-integration.ps1 -ZoteroPath ...` 指定程序位置。
+The OS keyboard-routing test is `tests/v0114-os-key-input.js`. It requires sending real operating-system Page Down / Arrow Down / Page Up inputs to its *isolated test Zotero window* during the test; ordinary synthetic JavaScript events do not cover Firefox's main-window handling. Physical hardware devices beyond that input test remain a separate manual check.
 
-## 范围与限制
+See [current architecture](docs/architecture.md), [verification summary](docs/verification.md), [release policy](docs/RELEASE-POLICY.md), [engineering principles](docs/ENGINEERING-PRINCIPLES.md), and the [v0.1.14 experiment report](docs/2026-10-12-v0114-verification-and-ab-results.md).
 
-首版优先支持普通电子论文和背景干净的扫描件。0.1.5 对纯文字且无批注的 PDF，仅在多个采样页确认连续编号及位置规律后，将高置信页码排除出**适配边界**；页码本身仍保留在原 PDF 中。对扫描件、乐谱、复杂图形、页眉、脚注维持保守检测，不拆栏、不永久裁剪。0.1.6 对含乐谱及混合图形的 PDF 使用约 25% 的斜向交错低清像素采样与二维支持度分析，置信度充足时可将孤立页码排除出宽度适配，同时保留完整高度页脚；复杂页面仍安全回退。0.1.6 还统一了新增按钮与 Zotero 原生缩放按钮的位置和亮／暗主题颜色，并提供更明确的选中状态与回退提示。只以停稳后的主要阅读页为目标；同屏两页不会独立同时适应。
+## A/B decisions (v0.1.14)
 
-分屏、独立窗口、复杂扫描、触摸板惯性滚动和特殊双击手势须按验证记录区分已测与待测；未验证的平台或行为不作完整支持承诺。私有接口随 Zotero 版本变化时可能需要适配。
+- Six-page odd/even boundary prediction: **not enabled**. Independent raster-reference checking found predicted crop boxes outside the 16-unit safety allowance on some unseen pages.
+- Raster-first on mixed graphics/text pages: **not enabled globally**. Measured gains for complex pages did not justify removing the very fast pure-text path; page classification needs its own safely measurable gate.
 
-技术依据：[Zotero 官方插件文档](https://www.zotero.org/support/dev/zotero_7_for_developers)、[PDFView 源码](https://github.com/zotero/reader/blob/master/src/pdf/pdf-view.js)。实现选择与验收映射见 [设计说明](docs/architecture.md)。
+Dated design plans, historical tests, and `CHANGELOG.md` are archives of how the product evolved, not definitions of the current UI.
 
-MIT License。
+Licensed under MIT.

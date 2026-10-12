@@ -668,6 +668,8 @@ var MarginFitCore = (() => {
     }
     focus(controller) {
       if (this.closed || !controller || controller.closed || !this.host.enabled()) return;
+      if (this.host.preferredIndexerController &&
+          this.host.preferredIndexerController()!==controller) return;
       if (controller.session.cache.size >= controller.session.count) {
         if (this.target===controller) this.stop(controller);
         return; // fully indexed: no periodic background timer

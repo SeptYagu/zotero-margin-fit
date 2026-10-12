@@ -17,7 +17,7 @@ function fixture(count=12) {
   });
   const controller={closed:false,dragging:false,lastInput:0,lastPage:2,
     readingDirection:1,session,viewer:{getPageView:()=>({viewport:{rotation:0}})}};
-  return {indexer,session,controller,called,timers,
+  return {indexer,session,controller,host,called,timers,
     time:t=>{clock=t;},enabled:b=>{enabled=b;},
     async tick(){timers.clear();await indexer.tick();},
     close(){indexer.close();session.close();}};
@@ -78,5 +78,28 @@ test('switch active PDF cancels worker token and selects new reader',()=>{
  f.indexer.focus(another);
  assert.equal(f.indexer.target,another);
  assert.equal(f.timers.size,1);
+ f.close();
+});
+
+
+test('selected PDF exclusively owns the worker and inactive readers cannot steal it',async()=>{
+ const f=fixture(12),a=f.controller,b={...f.controller,lastPage:7,
+   session:new C.Session(12,async()=>{throw Error('hidden render must never start');})};
+ f.host.preferredIndexerController=()=>b;
+ f.indexer.focus(a);
+ assert.equal(f.indexer.target,null,'inactive A was not scheduled');
+ f.indexer.focus(b);
+ assert.equal(f.indexer.target,b,'active B owns the sole worker');
+ f.indexer.focus(a);
+ assert.equal(f.indexer.target,b,'inactive A does not interrupt B');
+ f.host.preferredIndexerController=()=>null;
+ f.indexer.stop();
+ f.indexer.focus(a);
+ assert.equal(f.indexer.target,null,'after active PDF completion, hidden reader remains idle');
+ f.host.preferredIndexerController=()=>a;
+ f.indexer.focus(a);
+ assert.equal(f.indexer.target,a,'A restarts only on activation');
+ f.indexer.stop();
+ b.session.close();
  f.close();
 });

@@ -446,3 +446,18 @@ test('margin detection disabled: both fit controls still use native page fitting
  assert.equal(f.controller.mode,'off');
  f.controller.close();
 });
+
+
+test('mode changes arriving from another reader do not refit this inactive pane',async()=>{
+ const f=setup(8);f.enable();
+ f.viewer.currentScaleValue=1.31;f.viewer.container.scrollTop=83;
+ const count=f.controller.metrics.writes.length;
+ f.host.setMode('height');
+ f.controller.syncMode();
+ await new Promise(r=>setTimeout(r,100));
+ assert.equal(f.controller.mode,'height');
+ assert.equal(f.viewer.currentScale,1.31);
+ assert.equal(f.viewer.container.scrollTop,83);
+ assert.equal(f.controller.metrics.writes.length,count);
+ f.controller.close();
+});

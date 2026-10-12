@@ -62,12 +62,12 @@ async function runTests() {
     await until(()=>c.session.cache.has(7) && c.session.cache.has(9),
       'only adjacent pages are prefetched');
     measurements.folioValidationRenders=c.session.metrics.folioValidationRenders;
-    check(doc.querySelectorAll('[data-marginfit]').length===2,'Exactly two new controls; native Reset Zoom retained');
-    const heightButton=doc.querySelector('[data-marginfit="height"]'),detectButton=doc.querySelector('[data-marginfit="detect"]');
+    check(doc.querySelectorAll('[data-marginfit]').length===3,'Exactly three replacement toolbar controls');
+    const widthButton=doc.querySelector('[data-marginfit="width"]'),heightButton=doc.querySelector('[data-marginfit="height"]'),detectButton=doc.querySelector('[data-marginfit="detect"]');
     check(heightButton.title==='Fit Height / 适合高度' && heightButton.getAttribute('aria-label')===heightButton.title &&
       detectButton.title==='Detect Margins: On / 识别边界：开启' && detectButton.getAttribute('aria-label')==='Detect Margins / 识别边界',
       'Toolbar tooltips and accessible labels display English before Chinese');
-    for (const name of ['height','detect']) {
+    for (const name of ['width','height','detect']) {
       const button=doc.querySelector(`[data-marginfit="${name}"]`);
       check(reader._iframeWindow.getComputedStyle(button).getPropertyValue('-moz-window-dragging')==='no-drag',
         name+' button opts out of native toolbar window dragging');
@@ -75,9 +75,11 @@ async function runTests() {
       const hit=doc.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
       check(button===hit || button.contains(hit),name+' button is reachable at its visible mouse target');
     }
-    check(doc.getElementById('zoomAuto'),'Original Reset Zoom exists');
-    await until(()=>!doc.getElementById('zoomAuto').disabled,'native Reset Zoom enabled');
-    check(true,'React enables native Reset Zoom through instance stats callback');
+    check(doc.getElementById('zoomAuto') &&
+      reader._iframeWindow.getComputedStyle(doc.getElementById('zoomAuto')).display==='none',
+      'Native Reset Zoom is hidden and replaced by plugin Width control');
+    check(widthButton.getAttribute('aria-pressed')==='true' && heightButton.getAttribute('aria-pressed')==='false',
+      'Width selected and Height deselected initially');
     check(JSON.stringify(c.session.metrics.analyzed.slice(0,3))===JSON.stringify([8,9,7]),
       'Only immediate next/previous pages are prefetched before distant L1 samples');
     check([5,6,11,12,17,18].every(p=>!c.session.cache.has(p)),
@@ -108,9 +110,11 @@ async function runTests() {
     const scale=c.viewer.currentScale;
     c.viewer.currentScaleValue=scale*0.8;
     await sleep(100);
-    doc.getElementById('zoomAuto').click();
-    await until(()=>c.viewer.currentScale>scale*0.9,'toolbar smart width');
-    check(true,'Native toolbar invokes smart width through PDFView');
+    widthButton.click();
+    await until(()=>c.mode==='off','active Width toolbar click toggles OFF');
+    widthButton.click();
+    await until(()=>c.mode==='width' && c.viewer.currentScale>scale*0.9,'toolbar smart width');
+    check(true,'Dedicated Width toolbar toggles OFF/ON and restores smart fit');
     const ireader=reader._internalReader;
     const heightBefore=c.metrics.writes.length;
     doc.querySelector('[data-marginfit="height"]').click();
@@ -125,8 +129,8 @@ async function runTests() {
     check(detectButton.title==='Detect Margins: Off / 识别边界：关闭','OFF tooltip displays English before Chinese');
     ireader.zoomPageWidth();
     check(c.viewer.currentScaleValue==='page-width','Disabled native width restores page-width');
-    await until(()=>doc.getElementById('zoomAuto').disabled,'native disabled state restored');
-    check(true,'Disabled callback restores native Reset Zoom disabled state');
+    check(reader._iframeWindow.getComputedStyle(doc.getElementById('zoomAuto')).display==='none',
+      'Disabled margin detection keeps native toolbar control hidden');
     ireader.zoomPageHeight();
     check(c.viewer.currentScaleValue==='page-fit','Disabled native height restores page-fit');
     doc.querySelector('[data-marginfit="detect"]').click();
@@ -256,7 +260,9 @@ async function runTests() {
     check(true,'Removing split pane cancels its tasks and restores hooks');
     await c.request('width');
     const detached=await Zotero.Reader.open(item.id,{pageIndex:3},{openInWindow:true,allowDuplicate:true});
-    await until(()=>control(detached),'detached controller');
+    // A fresh Zotero detached reader loads its own iframe and database on a separate
+    // native window; observed cold startup exceeded the ordinary 20s check.
+    await until(()=>control(detached),'detached controller',600);
     const dc=control(detached);
     await dc.request('height');
     detached._window.document.getElementById('view-menuitem-zoom-page-width').dispatchEvent(new detached._window.Event('command',{bubbles:true}));
@@ -332,7 +338,7 @@ async function runTests() {
     view.zoomPageWidth();check(finalC.viewer.currentScaleValue==='page-width','Native width works after disable');
     await addon.enable();
     await until(()=>Zotero.MarginFit?.controllers.size>0,'re-enable discovery');
-    check(finalDoc.querySelectorAll('[data-marginfit]').length===2,'Re-enable does not duplicate controls');
+    check(finalDoc.querySelectorAll('[data-marginfit]').length===3,'Re-enable does not duplicate controls');
     await addon.uninstall();
     check(!Zotero.MarginFit,'Uninstall removes diagnostic reference');
     await finish({passed:true});

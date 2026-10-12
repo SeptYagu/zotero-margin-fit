@@ -53,7 +53,7 @@ var MarginFitRuntime = (() => {
       this.listen(this.win, "pointerdown", () => { this.dragging = true; this.input(); }, true);
       this.listen(this.win, "pointerup", () => { this.dragging = false; this.arm(); }, true);
       this.listen(this.win, "pointercancel", () => { this.dragging = false; this.arm(); }, true);
-      this.listen(this.win, "keydown", event => {
+      const handleKey=event => {
         if (this.host.enabled() && this.mode === "height" &&
             (event.key === "PageDown" || event.key === "PageUp") &&
             !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey &&
@@ -67,7 +67,20 @@ var MarginFitRuntime = (() => {
           return;
         }
         if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", " "].includes(event.key)) this.input(true);
-      }, true);
+      };
+      this.listen(this.win,"keydown",handleKey,true);
+      // Firefox/Zotero dispatches real PageDown/PageUp to the containing Chrome
+      // window, not to the PDF iframe. Native Arrow keys reach the iframe.
+      // Only the selected reader may intercept top-level page keys.
+      const reader=host.Zotero?.Reader?._readers?.find(r=>
+        r._internalReader?._primaryView===view);
+      if(reader?._window && reader._window!==this.win){
+        this.listen(reader._window,"keydown",event=>{
+          if(event.key!=="PageDown" && event.key!=="PageUp")return;
+          if(host.activeReader?.()!==reader || !this.win.document?.hasFocus?.())return;
+          handleKey(event);
+        },true);
+      }
       this.bus("scalechanging", () => {
         if (this.muted) return;
         this.anchor = this.viewer.currentScale;
@@ -270,7 +283,9 @@ var MarginFitRuntime = (() => {
       if (mode === this.mode) return;
       this.mode=mode;
       this.suspendMode();
-      if (this.host.enabled() && mode !== "off") this.begin();
+      // A mode change made in another reader updates this reader's preference,
+      // but must not zoom an inactive/split pane behind the user's back.
+      // Its next explicit fit or navigation will apply the selected mode.
     }
     toggleMode(mode) {
       if (this.mode !== mode) {
@@ -582,6 +597,29 @@ var MarginFitRuntime = (() => {
       this.poll = this.timers.setInterval(() => this.discover(),500);
       this.discover();
     }
+    activeReader() {
+      const readers=this.Zotero.Reader._readers || [];
+      const mainWindows=this.Zotero.getMainWindows();
+      const detached=readers.find(r=>r._window && !mainWindows.includes(r._window) &&
+        r._window.document?.hasFocus?.());
+      const selected=readers.find(r=>mainWindows.some(w=>
+        w.Zotero_Tabs?.selectedID===r.tabID && w.document?.hasFocus?.()));
+      const focused=readers.find(r=>r._iframeWindow?.document?.hasFocus?.());
+      return detached||selected||focused||null;
+    }
+    preferredIndexerController() {
+      const readers=this.Zotero.Reader._readers || [];
+      const controller=reader=>this.controllers.get(reader._internalReader?._primaryView);
+      const eligible=c=>c && !c.closed && c.mode!=="off" &&
+        c.session.cache.size < c.session.count;
+      // Selected PDF tab wins even when an unfocused background PDF finishes a job.
+      // Detached windows get priority when their own document is focused.
+      const active=controller(this.activeReader());
+      // Inactive Zotero reader iframes can suspend PDF.js render tasks. Do not
+      // launch the single worker into a hidden PDF after the active book is done;
+      // allow it to resume as soon as that PDF becomes the selected reader.
+      return eligible(active) ? active : null;
+    }
     discover() {
       if (!this.active) return;
       const live = new Set();
@@ -617,6 +655,13 @@ var MarginFitRuntime = (() => {
       for (const [reader,bar] of this.toolbars) if (!this.Zotero.Reader._readers.includes(reader)) {
         try { bar.remove(); } catch (_) { /* dead toolbar document */ }
         this.toolbars.delete(reader);
+      }
+      if (this.enabled()) {
+        const target=this.preferredIndexerController();
+        if (target!==this.indexer.target) {
+          if (target) this.indexer.focus(target);
+          else this.indexer.stop();
+        }
       }
     }
     async attach(view) {

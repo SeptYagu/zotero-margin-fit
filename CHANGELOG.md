@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.14 ? 2026-10-12
+
+- Repair default Zotero native acceptance driver against the current three-button UI without removing valid legacy coverage; preserve split-pane zoom on mode-pref updates and allow actual detached reader cold startup.
+- Accept Windows PageDown/PageUp in the selected PDF's Zotero main window, routing to the existing one-content-page step; preserve free ArrowDown and continuous PDF layout.
+- Prioritize the active PDF for one-worker idle indexing; stop after it is complete rather than trying to render suspended hidden readers. Selecting another unfinished PDF resumes indexing there.
+- Update current README, architecture and verification guides while archiving historical v0.1.2 records.
+- Experimental A/B: six-page parity cropping rejected on accuracy; unconditional raster-first rejected due extreme pure-text regression. Neither algorithm was enabled.
+
 ## 0.1.13 ? 2026-10-12
 
 - Hide the original Reset Zoom toolbar button and replace it in the same position with Fit Width, Fit Height and Detect Margins. Unloading the plugin restores the original.

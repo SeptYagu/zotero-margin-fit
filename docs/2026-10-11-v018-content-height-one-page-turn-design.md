@@ -33,8 +33,60 @@ detector-session object. A cached ordinary page is only its four detected PDF
 content coordinates, `[left, top, right, bottom]`, indexed by page number:
 
 ```json
-{"format":4,"algorithm":6,"pages":{"8":[58.57,138.57,361.43,651.66],"9":[148.57,140,451.43,651.66]}}
+{
+  "algorithmVersion": 1,
+  "pages": {
+    "8": [58.57, 138.57, 361.43, 651.66],
+    "9": [148.57, 140, 451.43, 651.66]
+  }
+}
 ```
+
+### Independent, user-authorized boundary algorithm version
+
+`algorithmVersion: 1` is a **cache-compatibility contract**, entirely independent
+of the plugin's release version, PDF.js version, and in-memory detector implementation
+version. For v0.1.8 the value starts at **1** and remains 1 across ordinary releases
+(v0.1.8, v0.1.9, v0.2.x, etc.). **Only increase this integer after the user
+explicitly approves invalidating old detected borders**, for example following a
+genuine incompatible change to what the four coordinates mean or how they are
+measured. No release script, package-version bump or internal refactor may
+increment it automatically.
+
+On opening a PDF:
+1. Identify its cache by the PDF fingerprint/source-file identity and page count.
+   Inspect the file-level `algorithmVersion` once.
+2. If `cache.algorithmVersion === CURRENT_CACHE_ALGORITHM_VERSION` (normally 1),
+   **reuse every previously cached valid four-coordinate page record**, regardless
+   of plugin version. Do not run detector work for those pages; missing pages are
+   the only normal candidates for detection.
+3. A lower cache algorithm version only indicates an incompatible generation
+   when the user has explicitly approved increasing the constant; recalculate
+   that document's entries as they become necessary. Avoid deleting old cache
+   files just because of a failed read.
+4. If the file claims a *higher* algorithm version than this older running
+   plugin supports, do not misinterpret it as compatible and do not overwrite it.
+   Treat it as unavailable to this build without destroying the newer cache.
+5. If the PDF itself has actually changed identity or source-file revision, it
+   must not reuse coordinates for a different document. File-level
+   identification is independent from algorithm-version compatibility.
+
+**Important v0.1.7 → v0.1.8 migration:** the current disk schema stores
+`algorithmVersion: 5` (tied to `MarginFitCore.VERSION`) and a storage-version
+field. This old **5 is not newer than the proposed independent v1**: the two
+numbers belong to different version schemes. Never perform a numeric greater-than
+comparison between legacy v0.1.7 and v0.1.8 headers. Detect the legacy schema
+separately, migrate each reliable `raw` box to the four-coordinate format,
+and write `algorithmVersion: 1` without rescanning. If the legacy record
+contains exceptional width-only geometry, preserve its behavior through the
+separate compatibility strategy below. All unrecognized or unsafe legacy
+records stay uncached; they may be recomputed when visited.
+
+Use a normal first JSON property rather than inserting a non-JSON line; keep
+the file valid JSON. Tests must prove two consecutive *different plugin versions*
+with the same cache algorithm version reuse the same bounds without invoking
+the detector, and that only an approved algorithm-version increase invalidates
+the old generation.
 
 The existing PDF fingerprint, source-file stamp and page count are retained **once
 in the file-level key/header**, never repeated in each page's payload. Rotation,
@@ -157,6 +209,10 @@ Reliable full-height ink fit is the success criterion; avoid clamping height by 
 5. With manual zoom, mouse dragging, selection, annotation editing, TOC/search jump, nested UI wheel, and text input focus, there is no lost input or forced re-centering. Ctrl+wheel and Shift+wheel retain their native purposes.
 6. Switching back to Fit Width or disabling the plugin restores the previously selected Zotero scroll/spread layout; second view / another tab unaffected; disabling/unloading restores all hooks.
 7. All existing unit, integration, caching, UI, real-PDF boundary and performance tests stay green. Avoid reintroducing unnecessary global page detection.
+7a. **Cache compatibility across releases:** save four-coordinate pages with `algorithmVersion: 1`; change only `package.json`/`manifest.json` release versions, reopen the identical PDF, and assert detector calls for previously cached pages remain **zero**.
+7b. **Explicit algorithm-version invalidation:** in a controlled test only, change the independent compatibility constant to 2; old v1 entries must not be reused. A newer-than-supported version must not be overwritten by an older plugin.
+7c. **One-time legacy migration:** supply v0.1.7 cache files using the legacy schema/version 5; import reliable `raw` boxes to independent v1 without rerendering, reject invalid ones, and retain documented width-fit behavior on exceptional pages.
+7d. **New PDF revision:** change file identity or its stamp while preserving `algorithmVersion: 1`; ensure an unrelated/stale document's boxes are not reused.
 8. A dedicated performance regression confirms the PAGE-mode implementation does not add high-frequency geometry scans or synchronous redraws per wheel tick.
 
 ## Recommended engineering sequence

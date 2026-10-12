@@ -26,7 +26,7 @@ Reproducible verification: `npm run test:page-mode-probe` executes `tests/v018-p
 
 See publicly documented PDF.js `ScrollMode.PAGE` and Zotero users' single-page-scrolling request. Zotero does not currently offer the combined content-height paging workflow as a single built-in command.
 
-## Minimal persistent cache: four coordinates per reliable page
+## Minimal persistent cache: four coordinates per evaluated page
 
 **Design decision for v0.1.8:** disk storage is a result cache, not a serialized
 detector-session object. A cached ordinary page is only its four detected PDF
@@ -54,8 +54,9 @@ measured. No release script, package-version bump or internal refactor may
 increment it automatically.
 
 On opening a PDF:
-1. Identify its cache by the PDF fingerprint/source-file identity and page count.
-   Inspect the file-level `algorithmVersion` once.
+1. Identify its cache by the PDF.js document fingerprint(s) and page count,
+   not by filename, path, or modification timestamp. Inspect the file-level
+   `algorithmVersion` once.
 2. If `cache.algorithmVersion === CURRENT_CACHE_ALGORITHM_VERSION` (normally 1),
    **reuse every previously cached valid four-coordinate page record**, regardless
    of plugin version. Do not run detector work for those pages; missing pages are
@@ -67,20 +68,23 @@ On opening a PDF:
 4. If the file claims a *higher* algorithm version than this older running
    plugin supports, do not misinterpret it as compatible and do not overwrite it.
    Treat it as unavailable to this build without destroying the newer cache.
-5. If the PDF itself has actually changed identity or source-file revision, it
-   must not reuse coordinates for a different document. File-level
-   identification is independent from algorithm-version compatibility.
+5. A different document fingerprint or page count uses a different cache;
+   a timestamp-only change must not invalidate otherwise identical PDF content.
+   The PDF.js fingerprint is a practical document identity, not a cryptographic
+   hash of every byte. Do not add expensive full-file hashing on every open.
 
 **Important v0.1.7 → v0.1.8 migration:** the current disk schema stores
 `algorithmVersion: 5` (tied to `MarginFitCore.VERSION`) and a storage-version
 field. This old **5 is not newer than the proposed independent v1**: the two
 numbers belong to different version schemes. Never perform a numeric greater-than
 comparison between legacy v0.1.7 and v0.1.8 headers. Detect the legacy schema
-separately, migrate each reliable `raw` box to the four-coordinate format,
-and write `algorithmVersion: 1` without rescanning. If the legacy record
-contains exceptional width-only geometry, preserve its behavior through the
-separate compatibility strategy below. All unrecognized or unsafe legacy
-records stay uncached; they may be recomputed when visited.
+separately, migrate validated detected boxes and deliberate full-page fallback
+boxes to four-coordinate format without rescanning. Old cache filenames may
+contain a size/mtime suffix; locate a matching legacy fingerprint/page-count
+once during migration without forcing re-detection after mtime-only changes.
+If the legacy record contains exceptional width-only geometry, preserve that
+behavior through the compatibility strategy below. Corrupt or render-failed
+legacy records stay uncached.
 
 Use a normal first JSON property rather than inserting a non-JSON line; keep
 the file valid JSON. Tests must prove two consecutive *different plugin versions*
@@ -88,18 +92,25 @@ with the same cache algorithm version reuse the same bounds without invoking
 the detector, and that only an approved algorithm-version increase invalidates
 the old generation.
 
-The existing PDF fingerprint, source-file stamp and page count are retained **once
-in the file-level key/header**, never repeated in each page's payload. Rotation,
-paper size and PDF.js pixel scale are recovered from the native PDF/page viewport.
+PDF.js document fingerprint(s) and page count identify the cache at the
+**document level**, never in each page's entry. New cache keys do not include
+filename, path, file size or last-modified timestamp. Page geometry (including
+paper size and native rotation) comes from PDF.js when fitting.
+No whole-file SHA-256 pass is required.
 No per-page `width`, `height`, `rotation`, `viewerRotation`, `quality`, `version`,
 `fastPath`, `folio`, `boundsKind`, `samplingRate`, `boundaryConfidence`
 or `elapsedMs` should be serialized. The in-memory detector may still calculate
 any of these values to determine whether a content boundary is safe.
 
-Persist **only valid and reliable boxes**. Unreliable/failed results have no saved
-four-coordinate entry; their conservative fallback stays a runtime decision.
-This choice means unusual pages with unreliable boundaries may be checked again
-on reopening. Do not silently reclassify a fallback as reliable or crop guessed ink.
+Persist **every successfully evaluated page's selected four-coordinate box**.
+The 25%-pixel sparse detector already treats a successful sampled boundary as
+reliable; approximate sampling is not itself a reason to skip persistence.
+For blank/undetected, nonwhite/dark-corner and dense-background pages, the
+successful algorithm chooses the **whole page** [0,0,width,height]; persist
+that result too. Presence of a cached full-page box means the scan already
+finished and need not be repeated on reopening. No persisted quality, confidence,
+reason or fallback flag is needed. A genuinely failed PDF read/raster render,
+or a corrupt/invalid geometry record, remains uncached and may be retried.
 
 **Compatibility constraint:** v0.1.7 sometimes has a separate `widthFitRaw`
 body-width rectangle for a marginal page number. Persisting only the ordinary
@@ -114,8 +125,8 @@ forcing a byte-saving change that breaks existing behavior.
 Use bounded numeric precision adequate for PDF-unit content fitting; reject
 nonfinite, inverted or out-of-page cached coordinates. Retain delayed batched
 writes and serialized merging for simultaneous views. Migrate old cache entries
-once, accepting reliable coordinates and rechecking ambiguous cases, rather
-than forcing a blanket full rescan. Reducing serialized metadata mainly improves
+once, accepting normal detected boxes and deliberate full-page fallback boxes;
+only true failures or invalid records should be retried, not every unusual page. Reducing serialized metadata mainly improves
 simplicity, file size and loading/merging cost; it **does not** by itself prove
 faster PDF detection.
 
@@ -178,7 +189,7 @@ Use actual PDF.js `unitScale` correctly: `getPageView(p-1).viewport.scale / view
 
 After setting `scrollMode=3`, calculate against the current page's new DOM geometry *after* PDF.js has attached/reflowed the page. Use guarded `epoch/token` checks. In no case synthesize a separate cropped bitmap or shift text and annotation layers by CSS transforms.
 
-Reliable full-height ink fit is the success criterion; avoid clamping height by full physical PDF paper. Respect MaxScale and unusual geometry limits. If ink bounds are unreliable, use **the full physical page for that page only**, and retain discrete paging. Never zoom a dense scan to an untrustworthy tiny area.
+The entire protected content-height interval must fit when a usable border was found; do not constrain it by the physical paper height. Respect MaxScale and unusual geometry. If detection deliberately chooses the whole-page box (blank, dark or dense page), fit that whole page instead, still with discrete page navigation. Ordinary sparse detections do not require an extra validation pass.
 
 **3. Discrete page input**
 
@@ -211,8 +222,9 @@ Reliable full-height ink fit is the success criterion; avoid clamping height by 
 7. All existing unit, integration, caching, UI, real-PDF boundary and performance tests stay green. Avoid reintroducing unnecessary global page detection.
 7a. **Cache compatibility across releases:** save four-coordinate pages with `algorithmVersion: 1`; change only `package.json`/`manifest.json` release versions, reopen the identical PDF, and assert detector calls for previously cached pages remain **zero**.
 7b. **Explicit algorithm-version invalidation:** in a controlled test only, change the independent compatibility constant to 2; old v1 entries must not be reused. A newer-than-supported version must not be overwritten by an older plugin.
-7c. **One-time legacy migration:** supply v0.1.7 cache files using the legacy schema/version 5; import reliable `raw` boxes to independent v1 without rerendering, reject invalid ones, and retain documented width-fit behavior on exceptional pages.
-7d. **New PDF revision:** change file identity or its stamp while preserving `algorithmVersion: 1`; ensure an unrelated/stale document's boxes are not reused.
+7c. **One-time legacy migration:** supply v0.1.7 cache files using legacy schema/version 5; import valid detected `raw` boxes *and deliberate full-page fallback boxes* into independent v1 without rerendering, reject actual failures/invalid boxes, and retain documented width-fit behavior on exceptional pages.
+7d. **Document identity:** rename, move or copy the same PDF, or change only its mtime, and assert its fingerprint/page-count cache is reused. Change the document fingerprint/page count and assert old coordinates are not reused. Document that a PDF.js fingerprint is not a full-file hash.
+7e. **Completed fallback caching:** a blank page, nonwhite corner or dense background stores a full-page four-coordinate box and reopens with no detector call. Actual render failure does not persist; ordinary sparse results persist without metadata fields.
 8. A dedicated performance regression confirms the PAGE-mode implementation does not add high-frequency geometry scans or synchronous redraws per wheel tick.
 
 ## Recommended engineering sequence

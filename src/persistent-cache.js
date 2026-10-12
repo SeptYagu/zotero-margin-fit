@@ -1,133 +1,152 @@
-/* Profile-local cache for compact, validated PDF boundary records. No PDF bytes stored. */
+/* Profile-local cache: one four-coordinate box per evaluated PDF page. */
 "use strict";
 var MarginFitPersistentCache = (() => {
-  const STORAGE_VERSION = 3; // v0.1.6 distinguishes estimated and verified fitting bounds.
-  const MAX_RECORDS = 3000;
-  // One in-process queue per cache file: parallel Zotero reader instances merge safely.
+  // Independent from plugin/package versions; increase ONLY after user approval.
+  const ALGORITHM_VERSION = 1;
+  const LEGACY_STORAGE_VERSION = 3;
+  const LEGACY_ALGORITHM_VERSION = 5; // v0.1.7 geometry, not comparable with v1
+  const BATCH_PAGES = 10;
+  const FLUSH_MS = 10000;
   const WRITE_QUEUE = new Map();
-  const validNumber = x => typeof x === "number" && Number.isFinite(x);
-  function validBox(box,width,height) {
-    return Array.isArray(box) && box.length===4 && box.every(validNumber) &&
-      box[0]>=0 && box[1]>=0 && box[2]>box[0] && box[3]>box[1] &&
-      box[2]<=width+.01 && box[3]<=height+.01;
+  const finite = n => typeof n === "number" && Number.isFinite(n);
+  function validBox(box, width = Infinity, height = Infinity) {
+    return Array.isArray(box) && box.length === 4 && box.every(finite) &&
+      box[0] >= 0 && box[1] >= 0 && box[2] > box[0] && box[3] > box[1] &&
+      box[2] <= width + .01 && box[3] <= height + .01;
   }
-  function validFolio(f,r) {
-    return f && r.fastPath===true && r.quality==='reliable' &&
-      Number.isSafeInteger(f.ordinal) && f.ordinal>=0 && f.ordinal<=9999 &&
-      (f.edge==='top'||f.edge==='bottom') &&
-      validBox(f.box,r.width,r.height) && validBox(f.body,r.width,r.height);
-  }
-  function validRecord(r, version) {
-    return !!r && r.version === version && ["reliable","fallback"].includes(r.quality) &&
-      validNumber(r.width) && r.width > 0 && validNumber(r.height) && r.height > 0 &&
-      [0,90,180,270].includes(r.rotation) && [0,90,180,270].includes(r.viewerRotation) &&
-      Array.isArray(r.raw) && r.raw.length === 4 && r.raw.every(validNumber) &&
-      r.raw[0] >= 0 && r.raw[1] >= 0 && r.raw[2] > r.raw[0] && r.raw[3] > r.raw[1] &&
-      r.raw[2] <= r.width + 0.01 && r.raw[3] <= r.height + 0.01 &&
-      (r.folio == null || validFolio(r.folio,r)) &&
-      (r.widthFitRaw == null || (r.quality==='reliable' && validBox(r.widthFitRaw,r.width,r.height) &&
-        r.widthFitRaw[1]===r.raw[1] && r.widthFitRaw[3]===r.raw[3])) &&
-      (r.boundsKind == null || (r.boundsKind === 'estimated' || r.boundsKind === 'verified')) &&
-      (r.samplingRate == null || (validNumber(r.samplingRate) && r.samplingRate>0 && r.samplingRate<=1)) &&
-      (r.boundaryConfidence == null || (validNumber(r.boundaryConfidence) && r.boundaryConfidence>=0 && r.boundaryConfidence<=1));
-  }
-  function cacheKey(fingerprints, count, fileStamp = null) {
+  function cacheKey(fingerprints, count) {
     if (!Number.isSafeInteger(count) || count < 1 || count > 100000 ||
-      !fingerprints || typeof fingerprints.length !== "number") return null;
+        !fingerprints || typeof fingerprints.length !== "number") return null;
     const parts = Array.from(fingerprints).filter(x => x != null);
-    if (!parts.length || parts.length > 2 ||
-      parts.some(x => typeof x !== "string" || !/^[a-f0-9]{16,64}$/i.test(x))) return null;
-    const base = parts.map(x => x.toLowerCase()).join("-") + "-" + count;
-    return (typeof fileStamp === 'string' && /^\d{1,16}-\d{1,16}$/.test(fileStamp))
-      ? base + '-' + fileStamp : base;
+    if (parts.length < 1 || parts.length > 2 ||
+        parts.some(x => typeof x !== "string" || !/^[a-f0-9]{16,64}$/i.test(x))) return null;
+    return parts.map(x => x.toLowerCase()).join("-") + "-" + count;
   }
   class Store {
-    constructor({ io, path, timers, fingerprints, count, version, fileStamp = null }) {
-      this.io=io;this.path=path;this.timers=timers;this.count=count;this.version=version;
-      this.key=cacheKey(fingerprints,count,fileStamp);
-      this.directory=path.join(path.profileDir,"marginfit-boundaries");
-      this.file=this.key ? path.join(this.directory,this.key+".json") : null;
-      this.dirty=new Map();this.timer=null;this.writing=Promise.resolve();
+    constructor({ io, path, timers, fingerprints, count, version = ALGORITHM_VERSION }) {
+      this.io = io; this.path = path; this.timers = timers; this.count = count;
+      this.version = version; this.key = cacheKey(fingerprints, count);
+      this.directory = path.join(path.profileDir, "marginfit-boundaries");
+      this.file = this.key ? path.join(this.directory, this.key + ".json") : null;
+      this.dirty = new Map(); this.timer = null; this.writing = Promise.resolve();
+      this.readOnly = false;
     }
     unpack(payload) {
-      const result=new Map();
-      if (!payload || payload.storageVersion !== STORAGE_VERSION ||
-        payload.algorithmVersion !== this.version || payload.key !== this.key ||
-        payload.numPages !== this.count || !Array.isArray(payload.pages) ||
-        payload.pages.length > MAX_RECORDS) return result;
-      for(const [p,r] of payload.pages) {
-        if(Number.isSafeInteger(p) && p>=1 && p<=this.count && validRecord(r,this.version))
-          result.set(p,r);
+      const result = new Map();
+      if (!payload || payload.algorithmVersion !== this.version ||
+          !payload.pages || Array.isArray(payload.pages) ||
+          typeof payload.pages !== "object") return result;
+      // A file must belong to this PDF; this is additional to its fingerprint-based filename.
+      if (payload.key !== this.key || payload.numPages !== this.count) return result;
+      for (const [key, box] of Object.entries(payload.pages)) {
+        const p = Number(key);
+        if (String(p) === key && Number.isSafeInteger(p) && p >= 1 && p <= this.count &&
+            validBox(box)) result.set(p, {raw:[...box], quality:"reliable"});
+      }
+      return result;
+    }
+    unpackLegacy(payload) {
+      const result = new Map();
+      if (payload?.storageVersion !== LEGACY_STORAGE_VERSION ||
+          payload.algorithmVersion !== LEGACY_ALGORITHM_VERSION ||
+          payload.numPages !== this.count || !Array.isArray(payload.pages)) return result;
+      // The legacy key may end with -size-mtime, which must not invalidate v1.
+      if (payload.key !== this.key && !new RegExp("^" + this.key + "-[0-9]+-[0-9]+$").test(payload.key)) return result;
+      for (const entry of payload.pages) {
+        if (!Array.isArray(entry) || entry.length !== 2) continue;
+        const [p, r] = entry;
+        if (!Number.isSafeInteger(p) || p < 1 || p > this.count ||
+            !finite(r?.width) || !finite(r?.height) ||
+            !validBox(r.raw, r.width, r.height)) continue;
+        // Legacy errors were persisted as fallback without a reason field.
+        // Cannot tell deliberate whole-page fallback from render failure: retry only these.
+        if (r.quality !== "reliable") continue;
+        result.set(p, {raw:[...r.raw], quality:"reliable"});
       }
       return result;
     }
     async load() {
-      if(!this.file) return new Map();
-      try {return this.unpack(await this.io.readJSON(this.file));}
-      catch (_) {return new Map();}
+      if (!this.file) return new Map();
+      try {
+        const saved = await this.io.readJSON(this.file);
+        if (saved?.key === this.key && saved?.algorithmVersion > this.version &&
+            saved?.storageVersion == null) {
+          this.readOnly = true; // do not overwrite a cache made by a newer plugin
+          return new Map();
+        }
+        if (saved?.algorithmVersion === this.version && saved?.storageVersion == null)
+          return this.unpack(saved);
+        const migrated = this.unpackLegacy(saved);
+        if (migrated.size) { this.schedule(migrated); return migrated; }
+      } catch (_) { /* no current-format file */ }
+      // One-time legacy migration; never enumerate directories during ordinary cache hits.
+      if (typeof this.io.getChildren !== "function") return new Map();
+      try {
+        const children = await this.io.getChildren(this.directory);
+        const files = children.filter(f => typeof f === "string" &&
+          (f === this.file || (f.startsWith(this.path.join(this.directory, this.key + "-")) &&
+            /-[0-9]+-[0-9]+\.json$/.test(f))));
+        for (const file of files) {
+          try {
+            const migrated = this.unpackLegacy(await this.io.readJSON(file));
+            if (!migrated.size) continue;
+            this.schedule(migrated);
+            return migrated;
+          } catch (_) { /* try next legacy candidate */ }
+        }
+      } catch (_) { /* no legacy directory */ }
+      return new Map();
     }
     pack(cache) {
-      const pages=[];
-      for(const [p,r] of cache) if(pages.length < MAX_RECORDS &&
-        Number.isSafeInteger(p) && p>=1 && p<=this.count && validRecord(r,this.version)) {
-        const {raw,width,height,rotation,viewerRotation,quality,version}=r;
-        const summary={raw:[...raw],width,height,rotation,viewerRotation,quality,version};
-        if(r.fastPath===true)summary.fastPath=true;
-        if(r.fastPath===true && r.folio)summary.folio={...r.folio,box:[...r.folio.box],body:[...r.folio.body]};
-        if(r.widthFitRaw)summary.widthFitRaw=[...r.widthFitRaw];
-        if(r.boundsKind)summary.boundsKind=r.boundsKind;
-        if(r.samplingRate!=null)summary.samplingRate=r.samplingRate;
-        if(r.boundaryConfidence!=null)summary.boundaryConfidence=r.boundaryConfidence;
-        pages.push([p,summary]);
+      const pages = {};
+      for (const [p, r] of cache) {
+        const box = Array.isArray(r) ? r : r?.raw;
+        if (Number.isSafeInteger(p) && p >= 1 && p <= this.count &&
+            validBox(box) && r?.reason !== "render-failed" && r?.reason !== "invalid-input")
+          pages[p] = [...box];
       }
-      return {storageVersion:STORAGE_VERSION,algorithmVersion:this.version,
-        key:this.key,numPages:this.count,pages};
+      return {algorithmVersion:this.version,key:this.key,numPages:this.count,pages};
     }
-
-    schedulePage(p, record) {
-      if(!this.file || !Number.isSafeInteger(p) || p<1 || p>this.count ||
-        !validRecord(record,this.version)) return;
-      // Constant work per new page. The full snapshot is built only on flush.
-      this.dirty.set(p,record);
-      this.armWrite();
+    schedulePage(p, r) {
+      const box = Array.isArray(r) ? r : r?.raw;
+      if (this.readOnly || !this.file || !Number.isSafeInteger(p) || p < 1 || p > this.count ||
+          !validBox(box) || r?.reason === "render-failed" || r?.reason === "invalid-input") return;
+      this.dirty.set(p, [...box]);
+      if (this.dirty.size >= BATCH_PAGES) { this.flush().catch(()=>{}); return; }
+      if (!this.timer) this.timer = this.timers.setTimeout(() => {
+        this.timer = null; this.flush().catch(()=>{});
+      }, FLUSH_MS);
     }
-    // Compatibility helper for callers importing an existing map (not the hot path).
     schedule(cache) {
-      if(!this.file)return;
-      for(const [p,r] of cache) if(Number.isSafeInteger(p) && p>=1 && p<=this.count &&
-        validRecord(r,this.version)) this.dirty.set(p,r);
-      this.armWrite();
-    }
-    armWrite() {
-      if(this.timer)this.timers.clearTimeout(this.timer);
-      this.timer=this.timers.setTimeout(()=>{this.timer=null;this.flush().catch(()=>{});},1200);
+      if (!this.file || this.readOnly) return;
+      for (const [p, r] of cache) this.schedulePage(p,r);
     }
     async flush() {
-      if(this.timer){this.timers.clearTimeout(this.timer);this.timer=null;}
-      if(!this.dirty.size || !this.file) return this.writing;
-      const changed=new Map(this.dirty);
-      this.dirty.clear();
-      const previous=WRITE_QUEUE.get(this.file)||Promise.resolve();
-      // Queue the read/merge/write transaction after all other reader instances.
-      const task=previous.catch(()=>{}).then(async()=>{
+      if (this.timer) { this.timers.clearTimeout(this.timer); this.timer = null; }
+      if (this.readOnly || !this.file || !this.dirty.size) return this.writing;
+      const changed = new Map(this.dirty); this.dirty.clear();
+      const previous = WRITE_QUEUE.get(this.file) || Promise.resolve();
+      const task = previous.catch(()=>{}).then(async () => {
         await this.io.makeDirectory(this.directory,{createAncestors:true});
-        let prior;
-        try{prior=this.unpack(await this.io.readJSON(this.file));}catch(_){prior=new Map();}
-        for(const [p,r] of changed) {
-          prior.delete(p); // refresh insertion order for the bounded recent-page cache
-          prior.set(p,r);
-        }
-        const recent=prior.size>MAX_RECORDS
-          ?new Map([...prior].slice(-MAX_RECORDS)):prior;
-        await this.io.writeJSON(this.file,this.pack(recent));
+        let prior = new Map();
+        try {
+          const saved = await this.io.readJSON(this.file);
+          if (saved?.algorithmVersion > this.version && saved?.storageVersion == null) {
+            this.readOnly = true;
+            return; // another instance produced a future cache; never overwrite it
+          }
+          prior = this.unpack(saved);
+        } catch (_) { /* first write */ }
+        for (const [p, raw] of changed) prior.set(p, {raw,quality:"reliable"});
+        await this.io.writeJSON(this.file,this.pack(prior));
       });
       WRITE_QUEUE.set(this.file,task);
       task.finally(()=>{if(WRITE_QUEUE.get(this.file)===task)WRITE_QUEUE.delete(this.file);}).catch(()=>{});
-      this.writing=task;
+      this.writing = task;
       return task;
     }
-    close() {return this.flush().catch(()=>{});}
+    close() { return this.flush().catch(()=>{}); }
   }
-  return {STORAGE_VERSION,MAX_RECORDS,validRecord,cacheKey,Store};
+  return {ALGORITHM_VERSION,BATCH_PAGES,FLUSH_MS,validBox,cacheKey,Store};
 })();
-if(typeof module !== "undefined")module.exports=MarginFitPersistentCache;
+if (typeof module !== "undefined") module.exports = MarginFitPersistentCache;

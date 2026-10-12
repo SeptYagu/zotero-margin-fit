@@ -50,20 +50,22 @@ test('unproven pattern and mixed graphic pages always retain full content bounds
  const mixed={...original,fastPath:false};
  assert.strictEqual(C.fitPageRecord(mixed,pattern,8),mixed);
 });
-test('persistent cache validates and preserves only numeric folio metadata',async()=>{
+test('four-coordinate disk cache strips transient folio analysis but preserves ink boundaries',async()=>{
  const disk=new Map();
  const io={readJSON:async key=>{if(!disk.has(key))throw Error('not found');return disk.get(key);},
   writeJSON:async(key,val)=>{disk.set(key,JSON.parse(JSON.stringify(val)));},
   makeDirectory:async()=>{}};
  const path={profileDir:'zotero-test',join:(...p)=>p.join('/')};
  const timers={setTimeout,clearTimeout};
- const make=()=>new P.Store({io,path,timers,count:24,version:C.VERSION,
+ const make=()=>new P.Store({io,path,timers,count:24,
   fingerprints:['1234567890abcdef']});
  const s=make(),source=record(7);s.schedule(new Map([[7,source]]));await s.flush();
  const rec=(await make().load()).get(7);
- assert.deepEqual(rec.folio,source.folio);
- assert.equal(rec.fastPath,true);
- const corrupt=disk.get(s.file);
- corrupt.pages[0][1].folio.body=[-1,2,3,4];
+ assert.deepEqual(rec.raw,source.raw);
+ assert.equal(rec.folio,undefined);
+ assert.equal(rec.fastPath,undefined);
+ const saved=disk.get(s.file);
+ assert.deepEqual(saved.pages['7'],source.raw);
+ saved.pages['7']=[-1,2,3,4];
  assert.equal((await make().load()).size,0);
 });

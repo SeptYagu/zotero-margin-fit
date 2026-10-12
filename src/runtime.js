@@ -519,26 +519,27 @@ var MarginFitRuntime = (() => {
           let store = null;
           if (this.cacheIO && this.cacheModule) {
             const {IOUtils,PathUtils}=this.cacheIO;
-            let fileStamp=null;
-            try {
-              const reader=this.Zotero.Reader._readers.find(r =>
-                [r._internalReader?._primaryView,r._internalReader?._secondaryView].includes(view));
-              const itemID=reader?._itemID ?? reader?.itemID;
-              if (Number.isSafeInteger(itemID)) {
-                const filePath=await this.Zotero.Items.get(itemID)?.getFilePathAsync?.();
-                if (filePath) {
-                  const stat=await IOUtils.stat(filePath);
-                  if (Number.isSafeInteger(stat.size) && Number.isFinite(stat.lastModified) && stat.lastModified >= 0)
-                    fileStamp=stat.size+'-'+Math.floor(stat.lastModified);
-                }
-              }
-            } catch (_) { /* Non-file readers can fall back to the PDF fingerprint. */ }
             if (!this.active || view._destroyed || app.pdfDocument !== key) return;
             store = new this.cacheModule.Store({io:IOUtils,path:PathUtils,timers:this.timers,
-              fingerprints:app.pdfDocument.fingerprints,count:app.pdfDocument.numPages,
-              fileStamp,version:C.VERSION});
+              fingerprints:app.pdfDocument.fingerprints,count:app.pdfDocument.numPages});
           }
-          session = new C.Session(app.pdfDocument.numPages, (p,r) => detect(app,view._iframeWindow,p,r),store);
+          // Disk entries hold only four PDF-space coordinates. Rebuild transient
+          // viewport metadata from native PDF.js page views without rasterization.
+          const restore = (p,record) => {
+            try {
+              const viewport=app.pdfViewer.getPageView(p-1).viewport;
+              const scale=viewport.scale;
+              if (!Number.isFinite(scale) || scale <= 0) return null;
+              const width=viewport.width/scale,height=viewport.height/scale;
+              const box=record.raw;
+              if (!this.cacheModule.validBox(box,width,height)) return null;
+              return {raw:box,width,height,rotation:viewport.rotation,
+                viewerRotation:app.pdfViewer.pagesRotation||0,
+                quality:"reliable",version:C.VERSION};
+            } catch (_) { return null; }
+          };
+          session = new C.Session(app.pdfDocument.numPages,
+            (p,r) => detect(app,view._iframeWindow,p,r),store,restore);
           this.sessions.set(key,session);
         }
         this.controllers.set(view,new Controller(view,session,this));

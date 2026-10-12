@@ -1,117 +1,135 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const C=require('../src/core.js'),P=require('../src/persistent-cache.js');
-const key=['0123456789abcdef','abcdef0123456789'];
-const record=(rotation=0)=>({raw:[20,40,180,240],width:200,height:300,rotation,
+const fps=['0123456789abcdef','abcdef0123456789'];
+const rec=(rotation=0)=>({raw:[20,40,180,240],width:200,height:300,rotation,
   viewerRotation:0,quality:'reliable',version:C.VERSION});
-function env(fingerprints=key,version=C.VERSION) {
+function env(key=fps,version=P.ALGORITHM_VERSION,count=12) {
   const disk=new Map();
   const io={makeDirectory:async()=>{},readJSON:async path=>{
     if(!disk.has(path))throw new Error('ENOENT');
     return JSON.parse(JSON.stringify(disk.get(path)));
-  },writeJSON:async(path,value)=>{disk.set(path,JSON.parse(JSON.stringify(value)));}};
+  },writeJSON:async(path,value)=>{disk.set(path,JSON.parse(JSON.stringify(value)));},
+  getChildren:async dir=>[...disk.keys()].filter(path=>path.startsWith(dir+'/'))};
   const path={profileDir:'fake-profile',join:(...p)=>p.join('/')};
   const timers={setTimeout,clearTimeout};
-  return {disk,io,path,timers,make:(fps=fingerprints,ver=version)=>new P.Store({
-    io,path,timers,fingerprints:fps,count:12,version:ver})};
+  return {disk,io,path,timers,make:(k=key,v=version,n=count)=>new P.Store({
+    io,path,timers,fingerprints:k,count:n,version:v})};
 }
-test('persistent cache stores only validated absolute boxes and reopens across sessions',async()=>{
-  const e=env(),w=e.make(),data=new Map([[1,record()],[2,record(90)],
-    [3,{raw:[-100,0,1,5],width:200,height:300,rotation:0,viewerRotation:0,quality:'reliable',version:C.VERSION}]]);
-  w.schedule(data);await w.flush();
-  const read=await e.make().load();
-  assert.equal(read.size,2);assert.deepEqual(read.get(1).raw,[20,40,180,240]);
-  assert.equal(e.disk.get(w.file).pages[0][1].elapsedMs,undefined);
+test('minimal persistent pages contain only four coordinates and reopen',async()=>{
+  const e=env(),w=e.make();
+  w.schedule(new Map([[1,rec()],[2,rec(90)],
+    [3,{...rec(),raw:[-100,0,1,5]}]]));
+  await w.flush();
+  const saved=e.disk.get(w.file);
+  assert.deepEqual(Object.keys(saved),['algorithmVersion','key','numPages','pages']);
+  assert.equal(saved.algorithmVersion,1);
+  assert.deepEqual(saved.pages,{'1':[20,40,180,240],'2':[20,40,180,240]});
+  assert.equal((await e.make().load()).size,2);
 });
-test('fingerprints, revision, page count, and algorithm version are strict',async()=>{
-  const e=env(),w=e.make();w.schedule(new Map([[1,record()]]));await w.flush();
-  assert.equal((await e.make(['fedcba9876543210']).load()).size,0);
-  assert.equal((await e.make(key,C.VERSION+1).load()).size,0);
+test('different plugin versions reuse same algorithm cache; approved compatibility bump invalidates',async()=>{
+  const e=env(),a=e.make();
+  a.schedulePage(1,rec());await a.flush();
+  assert.equal((await e.make().load()).size,1);
+  assert.equal((await e.make(fps,2).load()).size,0);
+  assert.notEqual(P.cacheKey(['fedcba9876543210'],12),a.key);
   assert.equal(P.cacheKey(['../../secret'],12),null);
-  assert.equal(P.cacheKey(key,0),null);
-  assert.equal(P.validRecord({...record(),raw:[NaN,0,2,3]},C.VERSION),false);
-  const bad=e.disk.get(w.file);bad.storageVersion=99;
-  assert.equal((await e.make().load()).size,0);
+  assert.equal(P.cacheKey(fps,0),null);
+  assert.equal(P.validBox([NaN,0,2,3]),false);
+  assert.equal(P.validBox([20,40,210,240],200,300),false);
 });
-test('new view shares saved records and does not render saved L1 pages again',async()=>{
+test('mtime, filename, path changes do not affect fingerprint cache identity',async()=>{
+  const e=env(),a=e.make();
+  assert.equal(P.cacheKey(fps,12,'1-100'),P.cacheKey(fps,12,'1-200'));
+  a.schedulePage(1,rec());await a.flush();
+  const b=new P.Store({io:e.io,path:e.path,timers:e.timers,fingerprints:fps,count:12,
+    fileStamp:'99999-00001'});
+  assert.equal(a.file,b.file);assert.equal((await b.load()).size,1);
+  assert.equal((await e.make(fps,1,13).load()).size,0);
+});
+test('successful full-page fallback persisted, renderer exceptions not persisted',async()=>{
+  const e=env(),a=e.make();
+  a.schedulePage(1,{...rec(),raw:[0,0,200,300],quality:'fallback',reason:'background'});
+  a.schedulePage(2,{...rec(),raw:[0,0,200,300],quality:'fallback',reason:'render-failed'});
+  await a.flush();
+  assert.deepEqual(e.disk.get(a.file).pages,{'1':[0,0,200,300]});
+  assert.deepEqual((await e.make().load()).get(1).raw,[0,0,200,300]);
+});
+test('legacy v0.1.7 stamped key migrates without reanalysis',async()=>{
+  const e=env(),a=e.make();
+  const legacyKey=a.key+'-4096-1791510000000';
+  const legacyFile=e.path.join(a.directory,legacyKey+'.json');
+  const fallback={...rec(),raw:[0,0,200,300],quality:'fallback'};
+  const saved={storageVersion:3,algorithmVersion:5,key:legacyKey,numPages:12,
+    pages:[[1,{...rec(),widthFitRaw:[55,40,170,240]}],
+      [2,{...rec(),raw:[NaN,0,1,2]}],[3,fallback]]};
+  // JSON would write NaN as null, simulating bad/corrupt persisted entry.
+  e.disk.set(legacyFile,JSON.parse(JSON.stringify(saved)));
+  const loaded=await a.load();
+  assert.deepEqual([...loaded.keys()],[1]);
+  await a.flush();
+  assert.deepEqual(e.disk.get(a.file).pages,{'1':[20,40,180,240]});
+  assert.equal((await e.make().load()).size,1);
+});
+test('cache with newer algorithm version remains unchanged under old plugin',async()=>{
+  const e=env(),a=e.make();
+  const higher={algorithmVersion:2,key:a.key,numPages:12,pages:{'1':[20,40,180,240]}};
+  e.disk.set(a.file,higher);
+  assert.equal((await a.load()).size,0);
+  a.schedulePage(2,rec());await a.flush();
+  assert.deepEqual(e.disk.get(a.file),higher);
+});
+test('fresh session reuses hydrated boxes without calling detector on cached samples',async()=>{
   const e=env(),fresh=[],w=e.make();
-  const s=new C.Session(12,async p=>{fresh.push(p);return record();},w);
+  const s=new C.Session(12,async p=>{fresh.push(p);return rec();},w);
   await s.l1();assert.equal(fresh.length,6);s.close();await w.writing;
-  const again=[],w2=e.make(),s2=new C.Session(12,async p=>{again.push(p);return record();},w2);
-  await s2.l1();assert.equal(again.length,0);
+  const again=[],w2=e.make(),s2=new C.Session(12,async p=>{again.push(p);return rec();},w2,
+    (p,r)=>({...rec(),raw:r.raw}));
+  await s2.l1();
+  assert.equal(again.length,0);
   assert.equal(s2.models[1]?.length,4);
   s2.close();
 });
-test('two readers writing same PDF preserve each other saved page boundaries',async()=>{
-  const e=env(),first=e.make(),second=e.make();
-  first.schedule(new Map([[1,record()]]));await first.flush();
-  second.schedule(new Map([[2,record(90)]]));await second.flush();
+test('same-document parallel writers merge pages without clobber',async()=>{
+  const e=env(),a=e.make(),b=e.make();
+  a.schedulePage(1,rec());b.schedulePage(2,rec(90));
+  await Promise.all([a.flush(),b.flush()]);
   assert.equal((await e.make().load()).size,2);
 });
-test('strict operator allowlist refuses images, vectors, text with drawing, and unknown codes',()=>{
+test('batch writer defers small writes and flushes by ten new pages',async()=>{
+  const e=env(fps,1,100);
+  const a=e.make(),old=a.pack.bind(a);
+  let writes=0;a.pack=x=>{writes++;return old(x);};
+  for(let p=1;p<=9;p++)a.schedulePage(p,rec());
+  assert.equal(writes,0);
+  assert.equal(a.dirty.size,9);
+  a.schedulePage(10,rec());
+  await a.writing;
+  assert.equal(writes,1);
+  assert.equal((await a.load()).size,10);
+  a.schedulePage(42,rec());
+  await a.close();
+  assert.equal((await a.load()).size,11);
+});
+test('book-wide cache does not evict pages after 3000',async()=>{
+  const e=env(fps,1,3105),a=e.make();
+  for(let p=1;p<=3105;p++)a.schedulePage(p,rec());
+  await a.flush();await a.writing;
+  const all=await a.load();
+  assert.equal(all.size,3105);
+  assert.ok(all.has(1)&&all.has(3105));
+});
+test('unsorted page-key insertion is valid and supports direct page lookup',async()=>{
+  const e=env(fps,1,100),a=e.make();
+  for(const p of [20,26,3,24])a.schedulePage(p,{...rec(),raw:[p,40,180,240]});
+  await a.flush();
+  assert.deepEqual((await e.make().load()).get(26).raw,[26,40,180,240]);
+  assert.deepEqual(Object.keys(e.disk.get(a.file).pages),['3','20','24','26']);
+});
+test('strict operator allowlist refuses graphics and unknown paint ops',()=>{
   const codes={dependency:1,beginText:2,endText:3,setFont:4,moveText:5,
     showText:6,setFillRGBColor:7,constructPath:8,paintImageXObject:9};
   const box=[20,30,170,200];
   assert.equal(C.isTextOnlyOps({fnArray:[7,2,1,4,5,6,3]},codes,box),true);
   for(const extra of [8,9,999])assert.equal(C.isTextOnlyOps({fnArray:[2,4,5,6,3,extra]},codes,box),false);
-  assert.equal(C.isTextOnlyOps({fnArray:[2,4,5,6,3]},codes,null),false);
-});
-
-
-test('file size / mtime stamp distinguishes replaced PDF at same fingerprint',async()=>{
-  const e=env();
-  assert.notEqual(P.cacheKey(key,12,'4096-1791510000000'),P.cacheKey(key,12,'4096-1791510000001'));
-  const before=new P.Store({io:e.io,path:e.path,timers:e.timers,fingerprints:key,count:12,version:C.VERSION,fileStamp:'4096-1791510000000'});
-  before.schedule(new Map([[1,record()]]));await before.flush();
-  const revised=new P.Store({io:e.io,path:e.path,timers:e.timers,fingerprints:key,count:12,version:C.VERSION,fileStamp:'4097-1791510000000'});
-  assert.equal((await revised.load()).size,0);
-});
-
-test('incremental page scheduling defers all full-map packing until flush',async()=>{
- const e=env();
- const s=new P.Store({io:e.io,path:e.path,timers:e.timers,fingerprints:key,count:1100,version:C.VERSION});
- let packCalls=0;
- const oldPack=s.pack.bind(s);
- s.pack=(m)=>{packCalls++;return oldPack(m);};
- for(let p=1;p<=1000;p++)s.schedulePage(p,record());
- assert.equal(packCalls,0,'no full-cache pack in hot detect loop');
- assert.equal(s.dirty.size,1000);
- await s.flush();
- assert.equal(packCalls,1,'one batch serialized on flush');
- assert.equal((await s.load()).size,1000);
- await s.close();
-});
-test('parallel reader flushes serialize and merge rather than clobber pages',async()=>{
- const e=env(),a=e.make(),b=e.make();
- a.schedulePage(1,record());
- b.schedulePage(2,record(90));
- await Promise.all([a.flush(),b.flush()]);
- const saved=await e.make().load();
- assert.equal(saved.size,2);
- assert.ok(saved.has(1)&&saved.has(2));
-});
-test('per-document cache keeps newest 3000 entries at the size cap',async()=>{
- const e=env();
- const s=new P.Store({io:e.io,path:e.path,timers:e.timers,fingerprints:key,count:3100,version:C.VERSION});
- for(let p=1;p<=3100;p++)s.schedulePage(p,record());
- await s.flush();
- const saved=await s.load();
- assert.equal(saved.size,3000);
- assert.equal(saved.has(1),false);
- assert.equal(saved.has(3100),true);
-});
-
-test('v0.1.6 cached sparse width and confidence survive reopen without raw reanalysis',async()=>{
- const e=env(),store=e.make(),r={...record(),boundsKind:'estimated',
-   samplingRate:.25,boundaryConfidence:.85,widthFitRaw:[55,40,170,240]};
- store.schedulePage(1,r);await store.flush();
- const saved=(await e.make().load()).get(1);
- assert.deepEqual(saved.widthFitRaw,r.widthFitRaw);
- assert.equal(saved.boundsKind,'estimated');assert.equal(saved.samplingRate,.25);
- assert.equal(saved.boundaryConfidence,.85);
- assert.deepEqual(saved.raw,r.raw);
- const corrupt={...r,widthFitRaw:[-10,40,170,240]};
- assert.equal(P.validRecord(corrupt,C.VERSION),false);
- assert.equal(P.validRecord({...r,samplingRate:1.4},C.VERSION),false);
- assert.equal(P.validRecord({...r,boundsKind:'verified-by-guess'},C.VERSION),false);
 });

@@ -379,13 +379,17 @@ var MarginFitCore = (() => {
     };
   }
   class Session {
-    constructor(count, detect, store = null) {
+    constructor(count, detect, store = null, restore = null) {
       this.count = count;
       this.detect = detect;
       this.cache = new Map();
       this.store = store;
       this.ready = store ? store.load().then(saved => {
-        if (!this.closed) for (const [p,r] of saved) this.cache.set(p,r);
+        if (this.closed) return;
+        for (const [p,r] of saved) {
+          const hydrated = restore ? restore(p,r) : r;
+          if (hydrated) this.cache.set(p,hydrated);
+        }
       }).catch(()=>{}) : Promise.resolve();
       this.models = null;
       this.folioPattern = null;
@@ -440,8 +444,10 @@ var MarginFitCore = (() => {
         if (!this.closed) {
           this.cache.set(p, value);
           this.metrics.analyzed.push(p);
-          if (this.store?.schedulePage) this.store.schedulePage(p,value);
-          else this.store?.schedule(this.cache);
+          if (value?.reason !== "render-failed" && value?.reason !== "invalid-input") {
+            if (this.store?.schedulePage) this.store.schedulePage(p,value);
+            else this.store?.schedule(this.cache);
+          }
         }
         return value;
       } finally { this.metrics.active--; }

@@ -1,4 +1,5 @@
-param([string]$ZoteroPath = 'C:\Program Files\Zotero\zotero.exe', [string]$DriverScript = 'integration-bootstrap.js', [switch]$Windowed)
+param([string]$ZoteroPath = 'C:\Program Files\Zotero\zotero.exe', [string]$DriverScript = 'integration-bootstrap.js', [switch]$Windowed,
+  [string]$BenchmarkXPI = '', [string]$BenchmarkManifest = '', [string]$BenchmarkLabel = '')
 $ErrorActionPreference = 'Stop'
 $projectPath = Split-Path $PSScriptRoot -Parent
 $driverPath = Join-Path $PSScriptRoot $DriverScript
@@ -9,10 +10,19 @@ $profileDirectory = Join-Path $runDirectory 'profile'
 $dataDirectory = Join-Path $env:LOCALAPPDATA ('Temp\ZoteroMarginFitTests\' + (Split-Path $runDirectory -Leaf) + '\data')
 New-Item -ItemType Directory -Path $profileDirectory,$dataDirectory -Force | Out-Null
 $resultPath = Join-Path $runDirectory 'result.json'
-$xpiPath = & node (Join-Path $projectPath 'scripts\build.cjs')
-if ($LASTEXITCODE -ne 0) { throw 'XPI build failed' }
-$fixtures = & node (Join-Path $PSScriptRoot 'make-fixtures.cjs')
-if ($LASTEXITCODE -ne 0) { throw 'Fixture generation failed' }
+if ($BenchmarkXPI) {
+    $xpiPath = (Resolve-Path -LiteralPath $BenchmarkXPI).Path
+} else {
+    $xpiPath = & node (Join-Path $projectPath 'scripts\build.cjs')
+    if ($LASTEXITCODE -ne 0) { throw 'XPI build failed' }
+}
+if ($BenchmarkManifest) {
+    $BenchmarkManifest = (Resolve-Path -LiteralPath $BenchmarkManifest).Path
+    $fixtures = Split-Path $BenchmarkManifest -Parent
+} else {
+    $fixtures = & node (Join-Path $PSScriptRoot 'make-fixtures.cjs')
+    if ($LASTEXITCODE -ne 0) { throw 'Fixture generation failed' }
+}
 $port = 50237
 $prefs = [ordered]@{
     'extensions.zotero.dataDir' = $dataDirectory
@@ -32,6 +42,8 @@ $prefs = [ordered]@{
     'marginfit.integrationXPI' = $xpiPath
     'marginfit.integrationExpectedVersion' = $expectedVersion
     'marginfit.integrationFixtures' = $fixtures
+    'marginfit.benchmarkManifest' = $BenchmarkManifest
+    'marginfit.benchmarkLabel' = $BenchmarkLabel
     'devtools.debugger.remote-enabled' = $true
     'devtools.debugger.chrome-enabled' = $true
     'devtools.debugger.prompt-connection' = $false
@@ -68,7 +80,7 @@ try {
     else { $env:MOZ_HEADLESS = '1' }
     $process = Start-Process -FilePath $ZoteroPath -ArgumentList @('-no-remote', '-profile', ('"' + $profileDirectory + '"'), '-chrome', 'chrome://zotero/content/zoteroPane.xhtml', '-ZoteroDebugText', '-ZoteroSkipBundledFiles', '-debugger') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $runDirectory 'stdout.log') -RedirectStandardError (Join-Path $runDirectory 'stderr.log')
     Write-Output "Test output: $runDirectory"
-    $deadline = (Get-Date).AddSeconds(180)
+    $deadline = (Get-Date).AddSeconds($(if ($BenchmarkManifest) { 1200 } else { 180 }))
     while ((Get-Date) -lt $deadline -and !(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $port -State Listen -ErrorAction SilentlyContinue)) { Start-Sleep -Milliseconds 500 }
     & node (Join-Path $PSScriptRoot 'debugger-driver.cjs') $port $driverPath
     $driverExit = $LASTEXITCODE

@@ -66,6 +66,9 @@ var MarginFitRuntime = (() => {
         if (this.muted) return;
         this.anchor = this.viewer.currentScale;
         this.manual = true; this.epoch++; this.cancelTimer();
+        // Manual zoom needs native continuous scrolling to leave this page.
+        // PAGE mode mounts only one page, and its wheel handler yields when manual.
+        if (this.heightPageMode) this.leaveHeightMode();
       });
       this.bus("rotationchanging", () => { this.manual = false; this.input(); });
       this.bus("pagechanging", event => {

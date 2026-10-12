@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.10 ? 2026-10-12
+
+- Fix Fit Height single-page lock after manual zoom. When native scalechanging marks the reader as manually zoomed, restore its previous continuous multi-page layout instead of leaving PDF.js in PAGE mode with wheel-to-next-page disabled.
+- Clicking Fit Height again deliberately re-enters the existing one-page-per-turn mode. No change to cache, margin detection, or normal wheel navigation.
+- 91 unit tests; 29 native isolated Zotero 10.0.6 Height/page-turn checks (including 3 new regression assertions).
+
 ## 0.1.9 ? 2026-10-12
 
 - Replace snapshot JSON boundary cache with append-only JSONL; cache reuse is still keyed by both PDF.js fingerprints and page count.

@@ -76,6 +76,16 @@ async function run(){
   await c.navigateTo(1);
   const changedSize=geometry(c);
   assert(changedSize.safeTop>=-3&&changedSize.safeBottom<=changedSize.availableHeight+3,'different-content-height page fitted in one navigation');
+  // Real PDF.js scalechanging used to leave the viewer with only one mounted page
+  // and no wheel-to-next-page navigation while manual zoom was active.
+  c.viewer.currentScaleValue=c.viewer.currentScale*1.15;
+  assert(await until(()=>!c.heightPageMode && c.viewer.scrollMode===original),
+    'manual zoom exits PAGE mode so remaining PDF pages are scrollable');
+  assert(c.viewer.viewer.querySelectorAll('.page').length>1,
+    'manual zoom restores multi-page DOM rather than locking the document');
+  await c.request('height');
+  assert(c.heightPageMode && c.viewer.scrollMode===3,
+    'explicit Fit Height can reactivate native page-turn mode after manual zoom');
   await c.request('width');
   assert(c.viewer.scrollMode===original && !c.heightPageMode,'Fit Width restores native continuous scrolling');
   assert(c.viewer.viewer.querySelectorAll('.page').length>1,'continuous page DOM restored');

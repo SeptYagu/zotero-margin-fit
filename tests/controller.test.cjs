@@ -13,7 +13,9 @@ function setup(count=1) {
   const viewer={container,currentScale:1,currentPageNumber:1,getPageView:()=>page,
     _getVisiblePages:()=>({views:[{id:1,view:page}]})};
   Object.defineProperty(viewer,'currentScaleValue',{set(value){viewer.currentScale=value;page.viewport.scale=value*4/3;}});
-  const bus={on(){},off(){}};
+  const events=new Map();
+  const bus={on(type,fn){events.set(type,fn);},off(type){events.delete(type);},
+    emit(type,data){events.get(type)?.(data);}};
   const win={...emitter,Object,PDFViewerApplication:{pdfViewer:viewer,eventBus:bus}};
   const nativeWidth=()=>{viewer.native='width';},nativeHeight=()=>{viewer.native='height';};
   let lastStats;
@@ -27,7 +29,7 @@ function setup(count=1) {
   const record={raw:[100,150,400,650],width:600,height:800,rotation:0,quality:'reliable'};
   const session=new global.MarginFitCore.Session(count,async()=>record);
   const controller=new Controller(view,session,host);
-  return {controller,host,viewer,session,record,view,nativeWidth,nativeHeight,stats,errors,
+  return {controller,host,viewer,bus,session,record,view,nativeWidth,nativeHeight,stats,errors,
     enable(value=true){enabled=value;session.setEnabled(value);},advance(ms){time+=ms;},getStats:()=>lastStats};
 }
 test('original native width/height pass through when disabled; stats and methods restore',()=>{
@@ -289,4 +291,21 @@ test('Fit Height translates mouse detents and touchpad inertia into discrete pag
   f.controller.manual=true;
   assert.equal(wheel(120).blocked,undefined,'manual zoom allows intra-page scrolling');
   f.controller.close();
+});
+test('manual zoom exits one-page height mode so the rest of the PDF stays scrollable',async()=>{
+ const f=setup(8);f.enable();
+ f.viewer.scrollMode=0;f.viewer.spreadMode=0;
+ await f.controller.request('height');
+ assert.equal(f.viewer.scrollMode,3);
+ assert.equal(f.controller.heightPageMode,true);
+ f.viewer.currentScale=1.3;
+ f.bus.emit('scalechanging');
+ assert.equal(f.controller.manual,true);
+ assert.equal(f.controller.heightPageMode,false,'native one-page mode must end at manual zoom');
+ assert.equal(f.viewer.scrollMode,0,'continuous scroll restores access to remaining pages');
+ await f.controller.request('height');
+ assert.equal(f.controller.heightPageMode,true,'explicit Height Fit re-enters requested page mode');
+ assert.equal(f.viewer.scrollMode,3);
+ assert.equal(f.controller.manual,false);
+ f.controller.close();
 });

@@ -13,6 +13,7 @@ Zotero PDF 阅读器的智能内容适应插件。保留原生 **Reset Zoom**，
 - Retain special far-away page-number Width Fit even after closing/reopening the PDF.
 - Handle mixed-page-size scans with dirty edges, dark corners and isolated scanner streaks; remove duplicate toolbar buttons.
 - The [release policy](docs/RELEASE-POLICY.md) publishes completed iterations as regular XPI Releases for rapid direct updates.
+- All reviews and changes follow the [mandatory engineering principles](docs/ENGINEERING-PRINCIPLES.md): evidence first, minimal changes, measured performance, and no speculative overengineering.
 
 ## v0.1.7 performance and positioning improvements
 

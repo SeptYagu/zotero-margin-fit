@@ -36,29 +36,46 @@ No overlays, loading UI, held old frames or waiting for PDF.js's paint events.
    fit the visible page, and complete the at-most-two neighbor prefetch.
    Ordinary foreground browsing or explicit Fit must never wait for the
    book-wide sweep.
-2. After the reader has had roughly **2 seconds without a user interaction**,
-   begin background work for the currently active document. This is a separate
-   *background* quiet threshold; the existing 500-ms foreground settling
-   logic remains unchanged. Adjust the two-second value based on actual
-   usability tests rather than build a complicated predictive scheduler.
-3. Select only **missing** page numbers. A simple priority order suffices:
-   go forward in the current reading direction from the already warm neighbors
-   toward the document end, then cover the remaining pages in the other
-   direction. On navigation to a new page, rebuild the unfinished scan
-   priority from that page; do not rescan cached pages.
+2. **Initial warmup only:** after the visible page and neighbor detection is
+   complete, give the reader approximately **2 seconds to settle** before
+   beginning the first book-wide scan. After indexing begins, do not reset
+   this full warmup merely because the user scrolls within a *cached* page
+   or navigates among *cached* pages. Reuse the existing approximately 500-ms
+   quiet/input window at page boundaries to avoid starting a new expensive
+   background job during an active stream of wheel/scroll events. Once the
+   user stops, continue without another two-second delay. Do not add a new
+   stateful user-behavior predictor.
+3. **Cache-gap scheduling:** maintain a set of completed page numbers; at
+   each job boundary select the **closest missing page in the reading direction**
+   beyond the locally cached run (e.g. current 20, already cached 21–25 ⇒
+   next target 26), then eventually cover remaining missing pages in the
+   reverse direction. Updating the current page among 20–25 does not cancel
+   the worker, restart its idle warmup, or rerun any cached page. Recalculate
+   the *next target only*, not a large pending queue, when user direction or
+   location changes. An existing background job may finish before the next
+   target is selected.
 4. Run **only one background detector job globally**, regardless of how many
    PDFs/split views are open, and only for the currently active reader's PDF.
    Insert a short idle gap between pages (initial design: approximately
    one second). At each boundary, recheck activity, selection, enabled state
    and document identity. A passive user reading a long page gives the worker
    time to continue across the book.
-5. **Foreground always wins.** New scrolling, wheel input, page/TOC/search
-   navigation, explicit Fit, document switch or disabling Margin Fit pauses
-   the sweep immediately, cancels not-yet-started work and prioritizes the
-   visible page. One ongoing expensive background PDF.js `renderTask` should
-   be cancellable, where supported, so it cannot block a later foreground
-   detection for many seconds. A deliberately aborted job is **not** a
-   successful full-page fallback and must not be persisted.
+5. **Prioritize actual foreground work, not every input event.** Scrolling
+   **inside the same page** is still an authoritative manual positioning
+   action for Margin Fit's visible-page controller; it should **not** cancel
+   an already-running background job or reset the full two-second warmup
+   when that page's borders are cached. While the user is continuously
+   scrolling, defer *starting the next* background job until the usual
+   brief quiet window. Changing to a page with cached bounds (including
+   cached neighboring pages) uses them immediately and normally leaves
+   the indexer running. But switching to an **uncached visible page** or
+   explicitly requesting new foreground detection must take priority:
+   cancel/defer queued background work, and where possible cancel a slow
+   in-flight offscreen render so it does not block foreground detection.
+   A deliberately aborted job is **not** a finished full-page fallback and
+   must not be persisted. A document switch, plugin disable, or close stops
+   or switches the background worker; none of these cases blocks the
+   user's immediate native page turn.
 6. A completed background detection updates only the shared page-boundary
    cache. **Never** change the displayed page, zoom or scroll position from
    the background worker; avoid triggering visible re-centering or duplicating
@@ -85,21 +102,35 @@ No overlays, loading UI, held old frames or waiting for PDF.js's paint events.
   earlier pages in books above 3,000 pages. Revisit/remove this cap for the
   new small four-coordinate format: once a page is fully indexed it should
   not be discarded merely because more pages are scanned.
-- The existing 1.2-second debounced JSON writer can rewrite a growing whole
-  document many times during book-wide indexing. Coalesce background
-  persistence into **small batches / occasional flushes**, plus close/stop
-  flush, rather than rewriting a potentially large cache after every page.
-  Do not hold all finished results until the entire book is done.
+- **JSON page order is irrelevant.** Use a page-number-indexed object/map:
+  `{ "pages": { "26": [l,t,r,b], "3": [l,t,r,b] } }` is perfectly readable;
+  `pages["26"]` retrieves page 26 regardless of insertion order. There is
+  no need to sort or insert earlier page entries into positional order.
+  **Do not literally append characters to the end of a complete JSON file**:
+  that would make it invalid. Keep the in-memory map updated after each page,
+  and write one syntactically valid JSON snapshot in **small batches**, e.g.
+  roughly 10 new pages or 10 seconds, whichever comes first, plus flush on
+  close/stop. The existing writer's in-process merge queue can prevent
+  independent reader views from overwriting one another. For this compact
+  cache format there is no need to invent an append-only journal or JSONL.
 
 ## Acceptance tests
 
 1. Cold 100-page book: foreground visible page and immediate neighbors are
    processed first; once quiet, additional missing pages begin getting cached
    without user navigation.
-2. Foreground interruption: start a slow background PDF render, scroll or
-   jump to an uncached page, and verify that the target navigation occurs
-   immediately and its detection is not queued behind a large book backlog.
-   Aborted work does not persist fake full-page bounds.
+2. Foreground interruption: start a slow background PDF render, then jump
+   to an **uncached** page. Assert immediate native page navigation and
+   foreground detection priority rather than queuing behind a book backlog.
+   Aborted background work does not persist fake full-page bounds.
+2a. Local scroll: repeated wheel/scroll events wholly within a **cached**
+   page preserve manual position and do not cancel a running indexing job
+   or restart the initial 2-second warmup. During a continuous scroll burst,
+   no *new* background job starts until the brief quiet window.
+2b. Cached navigation: with current page 20 and pages 21–25 all cached,
+   browse 21→22→23 and confirm no new detector runs on these pages and
+   no indexing restart. The next missing page 26 is selected once the
+   current background job finishes.
 3. Inactive PDF/split view: there is only one background worker in the Zotero
    process and no duplicate page analyses.
 4. Reopen and resume: after a partial scan, close/reopen the same PDF, reuse
@@ -116,6 +147,11 @@ No overlays, loading UI, held old frames or waiting for PDF.js's paint events.
    against v0.1.7 while indexing runs.
 8. Restart, disable, document close or plugin unload stops work cleanly and
    retains completed page results. Never corrupt the user's PDFs or annotations.
+9. Unordered JSON page keys are read by page number without sorting or
+   re-detection. A scan that completes pages 20, 26, 3, 24 writes a valid
+   JSON snapshot, preserves all four entries and their values, and reopens
+   without a detector call. Test separate buffered writes/merges and a
+   close-time flush.
 
 ## Implementation boundary
 

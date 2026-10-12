@@ -1,4 +1,4 @@
-# MarginFit ? Current architecture (v0.1.14)
+# MarginFit ? Current architecture (v0.1.15)
 
 This document describes the current shipped design, not the historical v0.1.0?v0.1.13 proposals. Archived v0.1.2 architecture: [historical version](architecture-v0.1.2-legacy.md). Source of truth: `src/core.js`, `src/runtime.js` and `src/persistent-cache.js`.
 
@@ -18,7 +18,7 @@ Append-only, line-based JSONL store with version header and last-write-wins page
 
 ## Background indexing
 
-There is ONE cooperative `IdleIndexer` for the extension. Foreground and visible neighbor jobs outrank it. Reader selection follows the focused detached reader or selected tab in Zotero's foreground main window; it reuses the existing 500ms reader-discovery interval, no extra window watcher. Only the **currently active incomplete PDF** is indexed. Once complete, the worker stops; background scans never target hidden/inactive reader iframes because PDF.js's hidden render task may stall. On selecting an incomplete PDF it resumes.
+There is ONE cooperative `IdleIndexer` for the extension. Foreground and visible neighbor jobs outrank it. Reader selection follows the focused detached reader or selected tab in Zotero's foreground main window; it reuses the existing 500ms reader-discovery interval, no extra window watcher. Finish **the currently active PDF first**, then scan all other still-open incomplete PDF readers with the SAME single worker. The worker stops only after every open PDF is cached, all readers close, or Detect Margins is switched OFF. Selection changes preempt background jobs. Inactive reader PDF.js display rendering can suspend its requestAnimationFrame; print-intent offscreen detection avoids this and conservatively merges the rectangles of display-only annotations. Fit Width/Height OFF leaves background recognition running when Detect Margins is ON.
 
 Different PDF view instances may keep independent rendering and geometry caches. Mode preference can be shared, but a mode change in one reader must not silently zoom or move an inactive/split pane.
 

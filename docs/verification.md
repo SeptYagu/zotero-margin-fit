@@ -1,4 +1,4 @@
-# MarginFit ? Current verification (v0.1.14)
+# MarginFit ? Current verification (v0.1.15)
 
 The older v0.1.2 records remain archived in [historical verification](verification-v0.1.2-legacy.md). This page is maintained for the CURRENT release.
 
@@ -10,7 +10,9 @@ The older v0.1.2 records remain archived in [historical verification](verificati
 - **28/28** content-height/continuous-scroll integration checks passed on the candidate.
 - **10/10** background indexing/JSONL checks passed. One native debugger transport timed out *after* writing a valid `passed: true` result file; Zotero assertions, not transport error, are authoritative in this harness.
 - **24/24** JSONL cache/faraway folio checks passed.
-- **Active-reader end-to-end**: opening document B makes B the index target, switching tabs moves the one worker to A and back, A does not index while B active. Once B's 24 pages are complete, no hidden PDF renders; selecting A resumes A.
+- **All-open native indexing**: the active one-page PDF B finishes first; hidden A automatically continues from partial cache to **24/24** without ever becoming active. The worker stops after all opened PDFs are complete. With active 24-page B, A remains untouched until B completes, then A starts.
+- **Annotation parity**: background print scanning merges display-only annotation geometry; a generated annotated PDF matches normal display's content extents within 3 PDF units with reliable, non-full-page bounds.
+- **Fit OFF**: detection/indexing remains active while Detect Margins is ON; viewport scale and position stay unchanged. Detect Margins OFF stops indexing.
 - **Windows OS-level keyboard injection** into the confirmed foreground disposable Zotero window produced two actual MarginFit `snapToContent` calls (8 -> 9 and 9 -> 8). ArrowDown was delivered as native trusted input without a whole-page MarginFit call. This verifies the input route; it is NOT the same as testing the user's physical hardware.
 
 ## A/B analysis: do not switch algorithms yet
@@ -23,4 +25,4 @@ See [experimental evidence](2026-10-12-v0114-verification-and-ab-results.md).
 
 ## Limitations
 
-OS-level simulated trusted keypresses are not a full physical input-device test. Active-window detection verified for two tabs, not every operating-system window manager. No evidence supports enabling the rejected parity/raster-first variants in v0.1.14. No user PDF/annotation or production Zotero profile was modified by tests.
+OS-level simulated trusted keypresses are not a full physical input-device test. Active-window detection verified for two tabs, not every operating-system window manager. No evidence supports enabling the rejected parity/raster-first variants in v0.1.15. No user PDF/annotation or production Zotero profile was modified by tests.

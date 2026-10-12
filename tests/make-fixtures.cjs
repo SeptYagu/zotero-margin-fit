@@ -18,7 +18,16 @@ function pdf(name, definitions) {
       resource+=` /XObject << /Im1 ${id} 0 R >>`;
     }
     const content=add(stream('',Buffer.from(d.content)));
-    ids.push(add(`<< /Type /Page /Parent ${pages} 0 R /MediaBox [0 0 600 800] /Rotate ${d.rotate||0} /Resources << ${resource} >> /Contents ${content} 0 R >>`));
+    let annots='';
+    if (d.displayAnnotation) {
+      // A display-only annotation (not Print flag): test print-intent offscreen
+      // render can protect the visibly annotated rectangle without drawing it.
+      const ap=add(stream('/Type /XObject /Subtype /Form /BBox [0 0 480 130]',
+        Buffer.from('1 1 0 rg 0 0 480 130 re f 1 0 0 RG 2 w 1 1 478 128 re S')));
+      const annot=add(`<< /Type /Annot /Subtype /Square /Rect [60 120 540 250] /F 0 /AP << /N ${ap} 0 R >> >>`);
+      annots=` /Annots [${annot} 0 R]`;
+    }
+    ids.push(add(`<< /Type /Page /Parent ${pages} 0 R /MediaBox [0 0 600 800] /Rotate ${d.rotate||0} /Resources << ${resource} >> /Contents ${content} 0 R${annots} >>`));
   }
   set(pages,`<< /Type /Pages /Count ${ids.length} /Kids [${ids.map(id=>id+' 0 R').join(' ')}] >>`);
   set(catalog,`<< /Type /Catalog /Pages ${pages} 0 R >>`);
@@ -73,6 +82,7 @@ pdf('blank.pdf',[{content:''}]);
 pdf('dark-background.pdf',[{content:'0.2 0.2 0.2 rg 0 0 600 800 re f'}]);
 pdf('wide-figure.pdf',[{content:'0 g 30 350 540 100 re f BT /F1 10 Tf 30 465 Td (Wide figure: height mode must permit horizontal scrolling.) Tj ET'}]);
 pdf('pure-text.pdf',Array.from({length:12},(_,i)=>({content:`0 g BT /F1 12 Tf 80 680 Td (Pure text page ${i+1} no graphics.) Tj ET BT /F1 10 Tf 80 600 Td (This body contains only ordinary PDF text.) Tj ET`})));
+pdf('display-only-annotation.pdf',[{content:'0 g BT /F1 18 Tf 120 620 Td (Display-only annotated PDF.) Tj ET',displayAnnotation:true}]);
 fs.writeFileSync(path.join(out,'truth.json'),JSON.stringify({
   book:{odd:[150,138,450,652],even:[60,138,360,652],tolerance:4},
   scan:{raw:[95,120,408,678],tolerance:3},rotated:true,blank:'fallback',dark:'fallback'

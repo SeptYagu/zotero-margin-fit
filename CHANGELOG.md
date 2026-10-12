@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.15 ? 2026-10-12
+
+- Restore user-required all-open background completion: active PDF first, then other opened PDFs, only stopping after all are cached.
+- Avoid hidden-iframe requestAnimationFrame stalls using background-only PDF.js print intent, leaving normal display intent untouched.
+- Add safety union of display-only PDF annotation rectangles to background detection; malformed metadata falls back conservatively.
+- Keep cache indexing independent of fit-mode OFF while Detect Margins is ON.
+- Native full-book inactive 24/24, activity selection, annotated page and Fit OFF tests; no changes to parity/raster-first A/B decisions.
+
 ## 0.1.14 ? 2026-10-12
 
 - Repair default Zotero native acceptance driver against the current three-button UI without removing valid legacy coverage; preserve split-pane zoom on mode-pref updates and allow actual detached reader cold startup.

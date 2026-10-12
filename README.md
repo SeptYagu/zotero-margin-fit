@@ -4,7 +4,7 @@
 
 MarginFit 隐藏 Zotero 原生 Reset Zoom，并在同一位置提供 **适合宽度、适合高度、识别边界** 三个按钮。它保留完整 PDF 的连续滚动、页内微调和阅读位置。
 
-## Current release: v0.1.14
+## Current release: v0.1.15
 
 The original Zotero Reset Zoom button is hidden while MarginFit runs; it is restored when the add-on is disabled or uninstalled. The plugin supplies its own **Fit Width**, **Fit Height** and **Detect Margins** controls in the original toolbar location.
 
@@ -18,7 +18,7 @@ When detected-content Fit Height is active, the entire PDF remains in native con
 - Text-only PDF pages may use a strict drawing-operator allowlist to avoid unnecessary rasterization. Complex scans, graphics, dirty borders and uncertain pages use conservative fallbacks.
 - Fit applies a **16 PDF-unit safety margin**, preserving printed page numbers where needed. An identified faraway folio may be excluded from **width** fitting while the full vertical content extent is retained.
 - A compact append-only **JSONL** cache stores four page coordinates, keyed by PDF.js fingerprints and page count. Older snapshot JSON caches are intentionally ignored without migration.
-- A single idle indexer scans missing pages in the **currently active PDF only**, keeping all interaction responsive. When the active PDF finishes, the idle worker stops; selecting another PDF resumes indexing there. Hidden readers are not rasterized.
+- The one shared background worker **finishes the currently active PDF first**, then automatically indexes other still-open PDFs until all are cached. Changing the active PDF preempts other scanning. Hidden PDF rasterization uses non-RAF print intent while protecting display-only annotations. Fit Width/Height OFF does not stop caching; the Detect Margins master switch does.
 - No OCR, network analysis, PDF-content rewriting or annotation-coordinate changes.
 
 ## Installation
@@ -38,13 +38,16 @@ npm run test:height
 npm run test:background
 npm run test:cache
 npm run test:active
+npm run test:all-open
+npm run test:annotation
+npm run test:fit-off-cache
 ```
 
 Native tests create **disposable Zotero profiles** and import generated PDF copies. They do not modify your production Zotero database or PDF files.
 
 The OS keyboard-routing test is `tests/v0114-os-key-input.js`. It requires sending real operating-system Page Down / Arrow Down / Page Up inputs to its *isolated test Zotero window* during the test; ordinary synthetic JavaScript events do not cover Firefox's main-window handling. Physical hardware devices beyond that input test remain a separate manual check.
 
-See [current architecture](docs/architecture.md), [verification summary](docs/verification.md), [release policy](docs/RELEASE-POLICY.md), [engineering principles](docs/ENGINEERING-PRINCIPLES.md), and the [v0.1.14 experiment report](docs/2026-10-12-v0114-verification-and-ab-results.md).
+See [current architecture](docs/architecture.md), [verification summary](docs/verification.md), [release policy](docs/RELEASE-POLICY.md), [engineering principles](docs/ENGINEERING-PRINCIPLES.md), and the [v0.1.15 restored all-open indexing report](docs/2026-10-12-v0115-all-open-background-indexing.md).
 
 ## A/B decisions (v0.1.14)
 

@@ -144,8 +144,11 @@ var MarginFitRuntime = (() => {
       this.cancelTimer();
       // Wheel and native scroll events often describe the same movement. Invalidate
       // pending work immediately, but only inspect page geometry once per short window.
-      if (!this.host.enabled() || this.mode === "off") return;
+      if (!this.host.enabled()) return;
+      // Fit OFF must still respect user activity: recognition/indexing is
+      // controlled independently by Detect Margins, not by zoom-mode toggles.
       this.session.noteActivity?.(this.lastInput);
+      if (this.mode === "off") return;
       // One inexpensive timer for a whole wheel/scroll burst. Avoid cancelling
       // and allocating a timer for every single input event.
       if (this.inputFlushTimer) return;
@@ -465,6 +468,16 @@ var MarginFitRuntime = (() => {
       const folioAnalysis = C.textAndFolio(content,viewport);
       const text = folioAnalysis.all;
       const suspectText = C.textNeedsInkCalibration(text,viewport.width);
+      // Print-intent rendering does not paint display-only annotations. Collect
+      // their page-space rectangles so background bounds still protect them.
+      let displayAnnotations=null, annotationUncertain=false;
+      if (token) {
+        try {
+          displayAnnotations=unwrap(await page.getAnnotations(into(win,{intent:"display"})));
+          if (!Array.isArray(displayAnnotations)) annotationUncertain=true;
+        } catch (_) { annotationUncertain=true; }
+        if (token.cancelled) return null;
+      }
       // A strict PDF.js operator allowlist forbids graphics, scans and unknown paint ops.
       // Only then can the cheap text geometry replace offscreen rasterization.
       if (text && !suspectText) {
@@ -475,9 +488,10 @@ var MarginFitRuntime = (() => {
           if (C.isTextOnlyOps(instructions,ops,text)) {
             // Annotation appearances may extend beyond text; a non-empty list is unsafe
             // for a text-only crop, even when the underlying page operations are text.
-            const annotations=unwrap(await page.getAnnotations(into(win,{intent:'display'})));
+            const annotations=token ? displayAnnotations
+              : unwrap(await page.getAnnotations(into(win,{intent:'display'})));
             if (token?.cancelled) return null;
-            if (Array.isArray(annotations) && annotations.length === 0)
+            if (!annotationUncertain && Array.isArray(annotations) && annotations.length === 0)
               return {raw:text,width:viewport.width,height:viewport.height,rotation:viewport.rotation,
                 viewerRotation,quality:'reliable',version:C.VERSION,fastPath:true,
                 folio:folioAnalysis.folio,
@@ -498,7 +512,10 @@ var MarginFitRuntime = (() => {
       context.fillStyle = "rgb(255,255,255)";
       context.fillRect(0,0,canvas.width,canvas.height);
       const renderTask=unwrap(page.render(into(win,{
-        canvasContext:context,viewport:low,background:"rgb(255,255,255)"})));
+        // Background PDF.js display renders may stall when an inactive iframe's
+        // requestAnimationFrame is suspended. Print intent runs without RAF.
+        canvasContext:context,viewport:low,background:"rgb(255,255,255)",
+        intent:token ? "print" : "display"})));
       if (token) token.cancelRender=()=>renderTask.cancel();
       if (token?.cancelled) { renderTask.cancel(); return null; }
       await renderTask.promise;
@@ -517,13 +534,33 @@ var MarginFitRuntime = (() => {
       const raster = ink.box?.map(n => n/factor);
       const merged = C.reconcileTextInk(text,raster,viewport.width,
         suspectText && estimated,support,!!ink.rimSuppressed,viewport.height);
-      const quality = ink.quality === "estimated" ? "reliable" : ink.quality;
-      const raw = quality === "reliable" && merged
+      const annotationBoxes=[];
+      if (token && !annotationUncertain) for (const annotation of displayAnnotations) {
+        try {
+          const rect=unwrap(annotation.rect);
+          if (!rect || rect.length!==4 || !Array.from(rect).every(Number.isFinite))
+            throw Error("invalid annotation rectangle");
+          const points=unwrap(viewport.convertToViewportRectangle(rect));
+          if (!points || points.length!==4 || !Array.from(points).every(Number.isFinite))
+            throw Error("unmappable annotation");
+          annotationBoxes.push([
+            C.clamp(Math.min(points[0],points[2]),0,viewport.width),
+            C.clamp(Math.min(points[1],points[3]),0,viewport.height),
+            C.clamp(Math.max(points[0],points[2]),0,viewport.width),
+            C.clamp(Math.max(points[1],points[3]),0,viewport.height)
+          ]);
+        } catch (_) { annotationUncertain=true;break; }
+      }
+      const quality = annotationUncertain ? "fallback"
+        : ink.quality === "estimated" ? "reliable" : ink.quality;
+      const inkBox = quality === "reliable" && merged
         ? [C.clamp(merged[0],0,viewport.width),C.clamp(merged[1],0,viewport.height),
           C.clamp(merged[2],0,viewport.width),C.clamp(merged[3],0,viewport.height)]
         : [0,0,viewport.width,viewport.height];
+      const raw = annotationBoxes.reduce((box,r)=>C.union(box,r),inkBox);
       let widthFitRaw;
-      if (body?.box && quality === "reliable") {
+      if (!annotationBoxes.length && !annotationUncertain &&
+          body?.box && quality === "reliable") {
         const bodyPixels = body.box.map(n => n/factor);
         const central = folioAnalysis.centerText;
         const contentBox = C.union(bodyPixels,central);
@@ -610,15 +647,23 @@ var MarginFitRuntime = (() => {
     preferredIndexerController() {
       const readers=this.Zotero.Reader._readers || [];
       const controller=reader=>this.controllers.get(reader._internalReader?._primaryView);
-      const eligible=c=>c && !c.closed && c.mode!=="off" &&
+      // Detect Margins is the indexing master switch. The Width/Height/OFF
+      // fit toggle controls viewport adjustments, not background cache work.
+      const eligible=c=>c && !c.closed && !c.session.paused &&
         c.session.cache.size < c.session.count;
       // Selected PDF tab wins even when an unfocused background PDF finishes a job.
       // Detached windows get priority when their own document is focused.
       const active=controller(this.activeReader());
-      // Inactive Zotero reader iframes can suspend PDF.js render tasks. Do not
-      // launch the single worker into a hidden PDF after the active book is done;
-      // allow it to resume as soon as that PDF becomes the selected reader.
-      return eligible(active) ? active : null;
+      // Finish the currently selected PDF first. Only after it is fully cached
+      // may the shared worker index another open PDF. Reuse the running target
+      // for steady progress; otherwise scan waiting readers in open-tab order.
+      if (eligible(active)) return active;
+      if (eligible(this.indexer.target)) return this.indexer.target;
+      for (const reader of readers) {
+        const waiting=controller(reader);
+        if (eligible(waiting)) return waiting;
+      }
+      return null;
     }
     discover() {
       if (!this.active) return;

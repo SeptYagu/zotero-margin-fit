@@ -1,6 +1,6 @@
 {
   "product": "MarginFit",
-  "productVersion": "0.1.14",
+  "productVersion": "0.1.15",
   "host": "Zotero 10.0.6 Windows",
   "defaultNativeIntegration": {
     "passed": true,
@@ -107,9 +107,11 @@
     "toolbarNativeChecks": 34,
     "backgroundCacheNativeChecks": 10,
     "jsonlCacheNativeChecks": 24,
-    "activeReaderNative": "active selected document scanned first, other hidden readers idle; restart on tab activation",
     "windowsOSKey": "trusted PageDown and PageUp called snapToContent(9,8) then snapToContent(8,9) on isolated test window",
-    "hardwareKeyboardDirectlyPressed": false
+    "hardwareKeyboardDirectlyPressed": false,
+    "allOpenedPDFIndexing": "Foreground B 1/1 first, then inactive A 24/24 without tab selection; scanner stops only after all open PDFs complete.",
+    "displayOnlyAnnotation": "Print-intent background detected geometry protects display-only annotations and matches foreground bounds within 3 PDF units.",
+    "fitOffIndexing": "Fit OFF leaves indexing active while Detect Margins ON, no zoom/scroll movement; Detect Margins OFF suspends indexer."
   },
   "algorithmDecisions": {
     "sixPageParityPrediction": "not adopted: 20/135 heldout reliable ink references exceeded protected prediction by >2 PDF units",

@@ -82,9 +82,9 @@ test('switch active PDF cancels worker token and selects new reader',()=>{
 });
 
 
-test('selected PDF exclusively owns the worker and inactive readers cannot steal it',async()=>{
+test('selected PDF gets priority, then waiting open PDF is eligible after selected completes',async()=>{
  const f=fixture(12),a=f.controller,b={...f.controller,lastPage:7,
-   session:new C.Session(12,async()=>{throw Error('hidden render must never start');})};
+   session:new C.Session(12,async()=>({raw:[0,0,400,600],rotation:0}))};
  f.host.preferredIndexerController=()=>b;
  f.indexer.focus(a);
  assert.equal(f.indexer.target,null,'inactive A was not scheduled');
@@ -92,13 +92,10 @@ test('selected PDF exclusively owns the worker and inactive readers cannot steal
  assert.equal(f.indexer.target,b,'active B owns the sole worker');
  f.indexer.focus(a);
  assert.equal(f.indexer.target,b,'inactive A does not interrupt B');
- f.host.preferredIndexerController=()=>null;
- f.indexer.stop();
- f.indexer.focus(a);
- assert.equal(f.indexer.target,null,'after active PDF completion, hidden reader remains idle');
+ // The scheduler now selects the incomplete waiting PDF once B is complete.
  f.host.preferredIndexerController=()=>a;
  f.indexer.focus(a);
- assert.equal(f.indexer.target,a,'A restarts only on activation');
+ assert.equal(f.indexer.target,a,'waiting PDF A takes the worker without activation');
  f.indexer.stop();
  b.session.close();
  f.close();

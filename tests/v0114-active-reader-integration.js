@@ -56,20 +56,17 @@ async function run(){let a,b;try{
    throw Error('B did not complete entire document within 55s');
  snapshot('B fully indexed');
  checks.push('Current active PDF B fully indexed first');
- if(!await until(()=>plugin.indexer.target===null,7000))
-   throw Error('indexer did not stop after the selected PDF completed');
- await sleep(1600);
- if(c1.session.cache.size!==cachedA)
-   throw Error('worker illegally indexed the hidden PDF A');
- snapshot('B complete: idle worker stopped');
- checks.push('After active PDF B completes, no hidden PDF is rendered');
+ if(!await until(()=>plugin.indexer.target===c1,7000))
+   throw Error('indexer did not hand off to waiting inactive PDF A');
+ if(!await until(()=>c1.session.cache.size>cachedA,18000))
+   throw Error('waiting PDF A did not scan after active B completion');
+ snapshot('A indexed while B remains active');
+ checks.push('After B completes, hidden PDF A is actually scanned without switching tabs');
  await tabs.select(tabA);
  if(!await until(()=>plugin.indexer.target===c1,6000))
-   throw Error('indexer did not switch to newly active PDF A');
- if(!await until(()=>c1.session.cache.size>cachedA,12000))
-   throw Error('newly selected PDF A did not resume indexing');
- snapshot('A resumed after reactivation');
- checks.push('Selecting PDF A resumes its one-worker indexing');
+   throw Error('indexer did not honor newly active PDF A');
+ snapshot('A selected after background progress');
+ checks.push('Current PDF A resumes foreground priority after background scan');
  await finish(true);
 }catch(e){await finish(false,e);}
 }

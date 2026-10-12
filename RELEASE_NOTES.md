@@ -1,14 +1,11 @@
-# MarginFit v0.1.14 ? Activity priority, trusted keys, repaired acceptance
+# MarginFit v0.1.15 ? All opened PDFs indexed again
 
-Regular release for Zotero 10.0.5?10.0.x.
+This release restores the original requirement inadvertently lost in v0.1.14: scan the selected PDF to completion FIRST, then automatically scan ALL other still-open PDFs with the single background worker. No activation of each hidden document is needed. New user selection regains priority. The worker stops only after every open document is cached or Detect Margins is disabled.
 
-- **PageDown / PageUp:** The real Windows OS keyboard input route now reaches the selected PDF, even when Zotero dispatches those keys to the main Chrome window rather than the reader iframe. One press moves exactly one content page. Arrow keys still permit normal fine scrolling.
-- **Idle indexing:** One shared cooperative worker finishes the currently selected PDF only. It switches promptly with tab focus; after that PDF is complete, hidden readers are not scanned (their PDF.js rendering may be suspended). Selecting another unfinished PDF resumes indexing there.
-- **Inactive PDF protection:** Shared fit-mode preference updates no longer cause a hidden/split pane to change zoom or position.
-- **Tests and docs:** Fix stale default native integration UI assertions; retain remaining native PDF behaviors, increase isolated detached reader cold-start wait. Replace stale current-state documents while archiving earlier historical reports.
-- **Existing features unchanged:** Three in-place toggle controls, continuous full-document scroll, content-page transitions, sparse detection, faraway page-number-aware Width Fit and JSONL cache.
-- **Algorithm decisions:** Real PDF A/B did *not* authorize activation of six-sample parity-based cropping or unconditional raster-first; the current precise-page and strict pure-text paths remain.
+Cause: background PDF.js display-intent raster rendering can become stuck waiting for animation frames in an inactive iframe. Background-only print-intent rendering is not RAF-driven; the same real Zotero test previously stalled at page 16/24 but now reaches 24/24 while the tab remains inactive.
 
-Verification: 99/99 unit tests, 78/78 complete native Zotero acceptance checks, 28/28 height/navigation checks, 34/34 UI checks and 24/24 cache checks, 10/10 idle/JSONL checks; native two-PDF activity and OS-injected trusted PageDown/PageUp navigation exercises recorded. Physical keyboard hardware and macOS/Linux input routes remain unverified.
+Safety: print mode omits display-only annotation appearances. The detector now merges visible annotation rectangles into the background content bounds, with conservative full-page fallback if annotation geometry is unreadable. Generated native annotated-PDF tests verified background bounds match foreground within 3 PDF units and remain precise.
 
-All tests used disposable Zotero profiles and PDF copies, not production data.
+Fitting controls are independent: Width/Height OFF stops automatic fitting, but cache indexing continues if Detect Margins stays ON.
+
+Unchanged: full-document continuous scrolling, one-content-page keys, dirty-border detection, folio exception in Width Fit, persistent JSONL and no speculative parity/raster-first optimization.

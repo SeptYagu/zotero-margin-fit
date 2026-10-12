@@ -445,7 +445,8 @@ var MarginFitCore = (() => {
           this.cache.set(p, value);
           this.metrics.analyzed.push(p);
           if (value?.reason !== "render-failed" && value?.reason !== "invalid-input") {
-            if (this.store?.schedulePage) this.store.schedulePage(p,value);
+            if (this.store?.schedulePage)
+              this.store.schedulePage(p, this.folioPattern ? fitPageRecord(value,this.folioPattern,p) : value);
             else this.store?.schedule(this.cache);
           }
         }
@@ -518,6 +519,13 @@ var MarginFitCore = (() => {
           const pattern = folioPattern(checked, this.cache);
           if (pattern && fitPageRecord(current, pattern, p).folioExcluded) {
             this.folioPattern = pattern;
+            // The durable cache stores body X + complete-content Y in only four
+            // coordinates. Persist the newly verified width exception, not just
+            // the earlier full-ink snapshot saved before folio validation.
+            if (this.store?.schedulePage) for (const n of checked) {
+              const record=this.cache.get(n);
+              if (record) this.store.schedulePage(n,fitPageRecord(record,pattern,n));
+            }
             if (checked.length < pages.length) this.metrics.folioEarlyStops++;
             this.folioAttempts.add(key);
             return pattern;

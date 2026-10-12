@@ -7,7 +7,12 @@ Status: development/isolated Zotero validation; NOT published and NOT installed 
 ## Confirmed implementation
 
 - Immutable document identity: PDF.js fingerprint(s) + number of pages; no path/filename/mtime dependency.
-- Independent cache compatibility `algorithmVersion: 1`; one four-coordinate content box per page.
+- Independent cache compatibility `algorithmVersion: 1`; one four-coordinate fit box per page.
+  **Required retained feature:** X coordinates use verified central body edges if an isolated
+  page number lies unusually far left/right, while Y coordinates always preserve the
+  full ink/page-number vertical extent. This keeps the original requested Width Fit
+  enlargement across reopening with no extra stored array or repeated raster scan.
+  Unproven outliers/important charts always retain full raw bounds.
 - Delayed JSON snapshots (10 pages or 10 seconds), unordered page lookup, and no 3,000-page eviction.
 - Legacy v0.1.7 version-5 fingerprint-and-stamp cache migration for reliable records; actual Zotero IO verified.
 - Foreground-visible/neighbor priority followed by one cooperative idle book indexer; cached navigation does not restart it.
@@ -19,12 +24,16 @@ Status: development/isolated Zotero validation; NOT published and NOT installed 
 
 ## Verification run
 
-- `npm test`: 84/84 unit tests passed.
+- `npm test`: 86/86 unit tests passed after width-folio persistent-cache checks.
 - `npm run test:height`: passed native Zotero 10.0.6 page-turn geometry, trackpad, restore,
   no delayed second fit, and blank-page fallback.
 - `npm run test:background`: passed idle pre-indexing without visible zoom/pan changes.
 - `npm run test:migration`: passed stamped legacy fingerprint cache migration.
-- `npm run test:cache` and `npm run test:ui`: passed.
+- `npm run test:cache`: passed native Zotero reopen with far-left score folio; original
+  Width Fit enlargement retained without rerendering, and pure-text verified folio
+  cases persisted body X with complete page-height Y.
+- `npm run test:ui`: passed; `npm run test:height`, `test:background`, `test:integration`
+  and `test:migration` were rerun successfully after the width-folio preservation fix.
 - `npm run build`: produced local v0.1.8 development XPI.
 - Main Zotero reader integration passed on the initial run and again after a tightened
   asynchronous rotation test. One intermediate run was intermittently early; the first
@@ -33,21 +42,24 @@ Status: development/isolated Zotero validation; NOT published and NOT installed 
   rotation and cache remeasurement. A later multi-run stability check remains useful.
 - `git diff --check`: clean (Git line-ending notices are not errors).
 
+## Compatibility decision (resolved)
+
+**Special width optimization is required and preserved.** Real Zotero 10.0.6
+mixed-score reopen checks and pure-text folio checks passed. Do not delete
+`widthFitRaw` detection. The stored 4-box is an *effective fit box*, not always
+an exhaustive full-ink horizontal rectangle; original PDF bytes are untouched,
+and horizontal panning remains possible.
+
 ## Release blockers / further acceptance
 
-1. **Width-only outlier boundary on reopen**: v0.1.7 sometimes preserves `widthFitRaw` in addition
-   to full content `raw`. The new four-coordinate disk schema deliberately drops transient metadata,
-   so a reopened book may lose the special isolated-folio Width Fit improvement. Choose and verify a
-   canonical one-box policy or exceptional lightweight recalculation *without adding a second disk
-   rectangle*. Keep full Height Fit safety and avoid losing meaningful graphics or notation.
-2. **Real-document visual audit**: test v0.1.8 against varied real research PDFs, scans, scores,
+1. **Real-document visual audit**: test v0.1.8 against varied real research PDFs, scans, scores,
    portrait/landscape, rotated and dark pages, before shipping. The v0.1.7 18-PDF benchmark
    does not establish v0.1.8 performance or fidelity.
-3. **Interaction regression**: repeat page-turn/navigation and rotation integration in fresh
+2. **Interaction regression**: repeat page-turn/navigation and rotation integration in fresh
    isolated profiles; exercise long jumps, annotation editing/search, split views and reopen.
-4. **Performance**: measure active reading responsiveness while idle indexing is working;
+3. **Performance**: measure active reading responsiveness while idle indexing is working;
    synthetic detections are not CPU/battery evidence. Ensure no foreground detector starvation.
-5. **Publication**: do not update `main`, v0.1.7 XPI or `updates.json` until the above are
+4. **Publication**: do not update `main`, v0.1.7 XPI or `updates.json` until the above are
    resolved and a separate verified release is staged.
 
 No user's original PDFs, production Zotero profile, or public updater were modified.

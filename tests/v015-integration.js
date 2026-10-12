@@ -70,6 +70,15 @@ async function run(){
   assert(Math.abs(folioScale/fullScale-1)<.05, // viewport layout and scrollbars can change
     'v0.1.6 retains the numbered footer in native Height Fit: '+folioScale+' vs '+fullScale);
   numbered.c.session.folioPattern=folioModel;
+  await numbered.c.session.store.flush();
+  const numberedDisk=await IOUtils.readJSON(numbered.c.session.store.file);
+  const numberedBox=numberedDisk.pages[String(folioTarget)];
+  assert(Array.isArray(numberedBox) && numberedBox.length===4 &&
+    Math.abs(numberedBox[0]-folioExact.folio.body[0])<.01 &&
+    Math.abs(numberedBox[2]-folioExact.folio.body[2])<.01 &&
+    Math.abs(numberedBox[1]-folioExact.raw[1])<.01 &&
+    Math.abs(numberedBox[3]-folioExact.raw[3])<.01,
+    'verified pure-text folio exclusion also persists body width and full height');
   const synthetic=await open('mixed-folio-score.pdf');
   // Without a current folio candidate, distant score pages are no longer
   // eagerly rendered; request this specific page for its independent geometry test.
@@ -91,6 +100,25 @@ async function run(){
   assert(widthScale>synthetic.c.viewer.currentScale*1.08,
     'true Zotero width fit enlarges staff body after excluding isolated left folio');
   mr.widthFitRaw=backup;
+  await synthetic.c.session.store.flush();
+  const bodyCache=await IOUtils.readJSON(synthetic.c.session.store.file);
+  const optimized=bodyCache.pages['5'];
+  assert(Array.isArray(optimized) && optimized.length===4 &&
+    Math.abs(optimized[0]-backup[0])<.01 && Math.abs(optimized[2]-backup[2])<.01 &&
+    Math.abs(optimized[1]-mr.raw[1])<.01 && Math.abs(optimized[3]-mr.raw[3])<.01,
+    'special Width Fit saves body X plus complete page-height Y as four coordinates');
+  synthetic.reader.close();
+  await until(()=>synthetic.c.closed,'synthetic reader disposed');
+  const reopenedScore=await open('mixed-folio-score.pdf');
+  await reopenedScore.c.session.ready;
+  assert(reopenedScore.c.session.cache.get(5)?.raw?.[0]===optimized[0],
+    'reopened score hydrates the previously excluded far-left page number');
+  reopenedScore.c.viewer.currentPageNumber=5;
+  await until(()=>reopenedScore.c.page()===5,'reopened score visible page');
+  await sleep(500);
+  await reopenedScore.c.request('width');
+  assert(Math.abs(reopenedScore.c.viewer.currentScale/widthScale-1)<.015,
+    'reopened Width Fit preserves original staff-body enlargement without rerendering');
   const years=await open('edge-year.pdf');
   await until(()=>years.c.prefetchedEpoch===years.c.epoch,'constant year validated or skipped');
   assert(years.c.session.folioPattern===null,'constant footer year is not excluded');

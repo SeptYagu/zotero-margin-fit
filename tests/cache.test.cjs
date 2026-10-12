@@ -27,6 +27,32 @@ test('minimal persistent pages contain only four coordinates and reopen',async()
   assert.deepEqual(saved.pages,{'1':[20,40,180,240],'2':[20,40,180,240]});
   assert.equal((await e.make().load()).size,2);
 });
+test('far-out footer stays excluded from Width Fit after reopening using only four coordinates',async()=>{
+  const e=env(), store=e.make();
+  const original={...rec(),raw:[5,20,195,270],widthFitRaw:[60,20,180,270]};
+  store.schedulePage(7,original);
+  await store.flush();
+  assert.deepEqual(e.disk.get(store.file).pages['7'],[60,20,180,270]);
+  assert.equal(e.disk.get(store.file).pages['7'].length,4);
+  const reopened=(await e.make().load()).get(7);
+  assert.deepEqual(reopened.raw,[60,20,180,270],
+    'X comes from main text; Y retains the page-number vertical extent');
+  assert.equal(C.scaleDecision(original,'width',{width:300,height:360},1,1,true).scale,
+    C.scaleDecision({...original,raw:reopened.raw,widthFitRaw:undefined},'width',
+      {width:300,height:360},1,1,true).scale);
+  const hydrated={...rec(),raw:reopened.raw};
+  assert.deepEqual(C.scaleDecision(hydrated,'height',{width:300,height:360},1,1,true).safe.slice(1,4).filter((_,i)=>i!==1),
+    [Math.max(0,20-C.SAFETY),Math.min(300,270+C.SAFETY)]);
+});
+test('invalid or height-altering body exceptions cannot corrupt four-coordinate cache',async()=>{
+  const e=env(),a=e.make(),base={...rec(),raw:[10,20,190,270]};
+  a.schedulePage(1,{...base,widthFitRaw:[60,30,170,260]});
+  a.schedulePage(2,{...base,widthFitRaw:[5,20,170,270]});
+  a.schedulePage(3,{...base,widthFitRaw:[60,20,170,270]});
+  await a.flush();
+  assert.deepEqual(e.disk.get(a.file).pages,{
+    '1':[10,20,190,270],'2':[10,20,190,270],'3':[60,20,170,270]});
+});
 test('different plugin versions reuse same algorithm cache; approved compatibility bump invalidates',async()=>{
   const e=env(),a=e.make();
   a.schedulePage(1,rec());await a.flush();
@@ -68,7 +94,7 @@ test('legacy v0.1.7 stamped key migrates without reanalysis',async()=>{
   const loaded=await a.load();
   assert.deepEqual([...loaded.keys()],[1]);
   await a.flush();
-  assert.deepEqual(e.disk.get(a.file).pages,{'1':[20,40,180,240]});
+  assert.deepEqual(e.disk.get(a.file).pages,{'1':[55,40,170,240]});
   assert.equal((await e.make().load()).size,1);
 });
 test('cache with newer algorithm version remains unchanged under old plugin',async()=>{

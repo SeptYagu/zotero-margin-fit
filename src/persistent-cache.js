@@ -14,6 +14,20 @@ var MarginFitPersistentCache = (() => {
       box[0] >= 0 && box[1] >= 0 && box[2] > box[0] && box[3] > box[1] &&
       box[2] <= width + .01 && box[3] <= height + .01;
   }
+  // The persistent rectangle is axis-specific: X fits the supported body
+  // while Y still spans every visible item, including far-out page numbers.
+  // Thus a single four-number array preserves the Width Fit exception without
+  // discarding full vertical ink geometry or adding a second cached rectangle.
+  function fitBox(record) {
+    const raw = Array.isArray(record) ? record : record?.raw;
+    if (!validBox(raw, record?.width, record?.height)) return raw;
+    const body = record?.widthFitRaw;
+    if (validBox(body, record.width, record.height) &&
+        body[0] >= raw[0] && body[2] <= raw[2] &&
+        Math.abs(body[1]-raw[1]) < .01 && Math.abs(body[3]-raw[3]) < .01)
+      return [body[0], raw[1], body[2], raw[3]];
+    return raw;
+  }
   function cacheKey(fingerprints, count) {
     if (!Number.isSafeInteger(count) || count < 1 || count > 100000 ||
         !fingerprints || typeof fingerprints.length !== "number") return null;
@@ -61,7 +75,7 @@ var MarginFitPersistentCache = (() => {
         // Legacy errors were persisted as fallback without a reason field.
         // Cannot tell deliberate whole-page fallback from render failure: retry only these.
         if (r.quality !== "reliable") continue;
-        result.set(p, {raw:[...r.raw], quality:"reliable"});
+        result.set(p, {raw:[...fitBox(r)], quality:"reliable"});
       }
       return result;
     }
@@ -100,7 +114,7 @@ var MarginFitPersistentCache = (() => {
     pack(cache) {
       const pages = {};
       for (const [p, r] of cache) {
-        const box = Array.isArray(r) ? r : r?.raw;
+        const box = fitBox(r);
         if (Number.isSafeInteger(p) && p >= 1 && p <= this.count &&
             validBox(box) && r?.reason !== "render-failed" && r?.reason !== "invalid-input")
           pages[p] = [...box];
@@ -108,7 +122,7 @@ var MarginFitPersistentCache = (() => {
       return {algorithmVersion:this.version,key:this.key,numPages:this.count,pages};
     }
     schedulePage(p, r) {
-      const box = Array.isArray(r) ? r : r?.raw;
+      const box = fitBox(r);
       if (this.readOnly || !this.file || !Number.isSafeInteger(p) || p < 1 || p > this.count ||
           !validBox(box) || r?.reason === "render-failed" || r?.reason === "invalid-input") return;
       this.dirty.set(p, [...box]);

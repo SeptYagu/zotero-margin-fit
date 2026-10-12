@@ -268,44 +268,33 @@ test('tiny per-page center changes do not write scrollLeft or schedule settling 
   f.controller.close();
 });
 
-test('Fit Height translates mouse detents and touchpad inertia into discrete page turns',async()=>{
-  const f=setup(20);f.enable();
-  const turned=[];f.controller.heightPageMode=true;
-  f.controller.turnPage=direction=>turned.push(direction);
-  const wheel=(deltaY,deltaMode=0,options={})=>{
-    const event={deltaY,deltaX:0,deltaMode,ctrlKey:false,metaKey:false,shiftKey:false,
-      target:{closest:()=>null},preventDefault(){this.blocked=true;},
-      stopImmediatePropagation(){},...options};
-    f.controller.heightWheel(event);return event;
-  };
-  assert.equal(wheel(120).blocked,true);
-  assert.deepEqual(turned,[1]);
-  wheel(-1,1);assert.deepEqual(turned,[1,-1]);
-  for(let i=0;i<15;i++)wheel(12);
-  assert.deepEqual(turned,[1,-1,1],'one touchpad inertia burst turns once');
-  await new Promise(r=>setTimeout(r,275));
-  for(let i=0;i<7;i++)wheel(12);
-  assert.deepEqual(turned,[1,-1,1,1],'separated touchpad burst turns again');
-  assert.equal(wheel(120,0,{ctrlKey:true}).blocked,undefined,'native Ctrl+Wheel stays unhandled');
-  assert.equal(wheel(120,0,{target:{closest:()=>true}}).blocked,undefined,'nested editor wheel stays native');
-  f.controller.manual=true;
-  assert.equal(wheel(120).blocked,undefined,'manual zoom allows intra-page scrolling');
-  f.controller.close();
+test('Fit Height uses native continuous scrolling without trapping wheel or keyboard',async()=>{
+ const f=setup(20);f.enable();
+ f.viewer.scrollMode=3;f.viewer.spreadMode=0;
+ await f.controller.request('height');
+ assert.equal(f.controller.mode,'height');
+ assert.equal(f.viewer.scrollMode,0,'old PAGE mode is cleared, full PDF accessible');
+ assert.equal(f.controller.manual,false);
+ const original=f.viewer.currentPageNumber;
+ f.viewer.currentPageNumber=2;
+ f.controller.input(true);
+ assert.equal(f.viewer.currentPageNumber,2,'native navigation is not taken over');
+ assert.ok(f.controller.epoch>0);
+ f.controller.close();
 });
-test('manual zoom exits one-page height mode so the rest of the PDF stays scrollable',async()=>{
+test('manual zoom does not switch to one-page mode; next Height Fit stays continuous',async()=>{
  const f=setup(8);f.enable();
  f.viewer.scrollMode=0;f.viewer.spreadMode=0;
  await f.controller.request('height');
- assert.equal(f.viewer.scrollMode,3);
- assert.equal(f.controller.heightPageMode,true);
+ assert.equal(f.viewer.scrollMode,0);
  f.viewer.currentScale=1.3;
  f.bus.emit('scalechanging');
  assert.equal(f.controller.manual,true);
- assert.equal(f.controller.heightPageMode,false,'native one-page mode must end at manual zoom');
- assert.equal(f.viewer.scrollMode,0,'continuous scroll restores access to remaining pages');
+ assert.equal(f.viewer.scrollMode,0);
  await f.controller.request('height');
- assert.equal(f.controller.heightPageMode,true,'explicit Height Fit re-enters requested page mode');
- assert.equal(f.viewer.scrollMode,3);
  assert.equal(f.controller.manual,false);
+ assert.equal(f.viewer.scrollMode,0);
+ await f.controller.request('width');
+ assert.equal(f.viewer.scrollMode,0);
  f.controller.close();
 });

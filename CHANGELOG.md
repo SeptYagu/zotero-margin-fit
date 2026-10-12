@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.11 ? 2026-10-12
+
+- Replace single-PAGE Fit Height with content-aware scale in the native continuous-scrolling PDF viewer. All pages remain in the document and scrollbar; normal arrow/Page Down/mouse wheel/touchpad behavior is no longer intercepted.
+- Remove the custom one-page wheel and navigation machinery rather than layering additional handlers on it.
+- Restore continuous scrolling if an older reader is still in PAGE mode; preserve height-aware fitting, JSONL persistent cache, folio Width Fit and sparse geometry detection.
+- Replace obsolete active page-mode test entrypoint with native full-document regression checks.
+
 ## 0.1.10 ? 2026-10-12
 
 - Fix Fit Height single-page lock after manual zoom. When native scalechanging marks the reader as manually zoomed, restore its previous continuous multi-page layout instead of leaving PDF.js in PAGE mode with wheel-to-next-page disabled.

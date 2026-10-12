@@ -429,19 +429,19 @@ var MarginFitCore = (() => {
       }
       return false;
     }
-    async read(p, rotation) {
+    async read(p, rotation, token = null) {
       await this.ready;
       const prior = this.cache.get(p);
       if (prior && (rotation === undefined || prior.rotation === rotation)) {
         this.metrics.cacheHits++;
         return prior;
       }
-      if (this.closed || this.paused) return null;
+      if (this.closed || this.paused || token?.cancelled) return null;
       this.metrics.active++;
       this.metrics.peakConcurrent = Math.max(this.metrics.peakConcurrent, this.metrics.active);
       try {
-        const value = await this.detect(p, rotation);
-        if (!this.closed) {
+        const value = await this.detect(p, rotation, token);
+        if (value && !token?.cancelled && !this.closed) {
           this.cache.set(p, value);
           this.metrics.analyzed.push(p);
           if (value?.reason !== "render-failed" && value?.reason !== "invalid-input") {
@@ -532,7 +532,15 @@ var MarginFitCore = (() => {
     }
     // The actual page is never blocked by book-wide samples. Both startup and
     // explicit Fit share this serialized foreground path (one detector worker).
-    visible(p, rotation, valid = () => true) {
+    async visible(p, rotation, valid = () => true) {
+      await this.ready;
+      if (!valid()) return null;
+      const cached=this.cache.get(p);
+      if (cached && cached.rotation === rotation) {
+        this.metrics.cacheHits++;
+        return cached; // never wait behind offscreen background work on a cache hit
+      }
+      this.backgroundToken?.cancel?.();
       return this.serial(() => valid() ? this.read(p, rotation) : null);
     }
     async local(p, rotation, valid, onCurrent, direction = 1) {
@@ -567,12 +575,101 @@ var MarginFitCore = (() => {
         await onCurrent(current, true);
     }
     close() {
-      this.closed = true; this.store?.close(this.cache); this.cache.clear();
+      this.closed = true; this.backgroundToken?.cancel?.();
+      this.store?.close(this.cache); this.cache.clear();
       this.speculative.clear(); this.visitedPages.clear(); this.folioAttempts.clear();
     }
   }
+  // One cooperative worker for the active PDF reader, never for PDF.js display
+  // painting. A job is selected only at a page boundary, not enqueued in bulk.
+  class IdleIndexer {
+    constructor(host) {
+      this.host=host; this.target=null; this.timer=null; this.busy=false;
+      this.token=null; this.closed=false; this.completed=0;
+    }
+    clearTimer() { if (this.timer) this.host.clearTimeout(this.timer); this.timer=null; }
+    cancelJob() {
+      if (this.token) {
+        this.token.cancelled=true;
+        try { this.token.cancelRender?.(); } catch (_) {}
+        this.token=null;
+      }
+    }
+    focus(controller) {
+      if (this.closed || !controller || controller.closed || !this.host.enabled()) return;
+      if (controller.session.cache.size >= controller.session.count) {
+        if (this.target===controller) this.stop(controller);
+        return; // fully indexed: no periodic background timer
+      }
+      const changed=this.target!==controller;
+      if (changed) { this.cancelJob();this.target=controller; }
+      if (!this.busy) this.arm(changed ? 2000 : 500);
+    }
+    onNavigation(controller,p) {
+      if (this.closed || !this.host.enabled()) return;
+      if (this.target!==controller) return;
+      if (!controller.session.cache.has(p)) {
+        // Actual foreground detector work, not mere scroll activity, preempts.
+        this.cancelJob();this.clearTimer();
+      }
+    }
+    arm(delay) {
+      if (this.closed || this.busy || !this.target) return;
+      this.clearTimer();
+      this.timer=this.host.setTimeout(()=>{this.timer=null;this.tick().catch(e=>this.host.error(e));},delay);
+    }
+    choose(session,current,direction) {
+      const count=session.count, cache=session.cache;
+      const sign=direction<0 ? -1 : 1;
+      for (let p=current+sign; p>=1 && p<=count; p+=sign)
+        if (!cache.has(p)) return p;
+      for (let p=sign>0 ? 1 : count; p>=1 && p<=count;
+           p+=sign)
+        if (!cache.has(p)) return p;
+      return null;
+    }
+    async tick() {
+      const c=this.target;
+      if (this.closed || !c || c.closed || !this.host.enabled()) return;
+      await c.session.ready;
+      if (this.closed || this.target!==c || c.closed) return;
+      if (c.session.cache.size>=c.session.count) return; // no worker/timer on completed book
+      const elapsed=this.host.now()-c.lastInput;
+      if (elapsed<500 || c.dragging || c.session.paused) {
+        this.arm(Math.max(500,500-elapsed));return;
+      }
+      const p=this.choose(c.session,c.lastPage,c.readingDirection);
+      if (p==null) return;
+      // A single active PDF may be rendered offscreen at once.
+      this.busy=true;
+      const token={cancelled:false,cancelRender:null};
+      token.cancel=()=>{token.cancelled=true;try{token.cancelRender?.();}catch(_){}};
+      this.token=token;
+      c.session.backgroundToken=token;
+      try {
+        await c.session.serial(async()=>{
+          if(token.cancelled || this.closed || !this.host.enabled() ||
+            this.target!==c || c.closed || c.session.paused) return;
+          const view=c.viewer.getPageView(p-1);
+          if(!view) return;
+          await c.session.read(p,view.viewport.rotation,token);
+        });
+        if (!token.cancelled) this.completed++;
+      } finally {
+        if(c.session.backgroundToken===token)c.session.backgroundToken=null;
+        if(this.token===token)this.token=null;
+        this.busy=false;
+        if(!this.closed && this.target && this.host.enabled())this.arm(1000);
+      }
+    }
+    stop(controller=null) {
+      if(controller && this.target!==controller)return;
+      this.clearTimer();this.cancelJob();this.target=null;
+    }
+    close() { this.closed=true;this.stop(); }
+  }
   return { VERSION, SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,
     parityModels, prediction, multiply, textBox, textNeedsInkCalibration, sparseEdgeSupport, reconcileTextInk, textAndFolio, folioPattern, fitPageRecord,
-    isTextOnlyOps, inkBox, sparseInkBox, sparseBodyWidth, scaleDecision, primaryPage, hook, Session };
+    isTextOnlyOps, inkBox, sparseInkBox, sparseBodyWidth, scaleDecision, primaryPage, hook, Session, IdleIndexer };
 })();
 if (typeof module !== "undefined") module.exports = MarginFitCore;

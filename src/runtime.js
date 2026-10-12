@@ -138,6 +138,7 @@ var MarginFitRuntime = (() => {
           this.session.visit(p, this.viewer.getPageView(p-1).viewport.rotation);
         }
         this.lastPage = p;
+        this.host.indexer?.onNavigation(this,p);
         this.arm();
       };
       schedule(this.epoch);
@@ -195,7 +196,10 @@ var MarginFitRuntime = (() => {
           if (record.quality !== "reliable") { this.fallback(record.reason); return; }
           await this.apply(record, p, token);
         }, this.readingDirection);
-        if (this.stable(token,p)) this.prefetchedEpoch = token;
+        if (this.stable(token,p)) {
+          this.prefetchedEpoch = token;
+          this.host.indexer?.focus(this);
+        }
       } catch (error) { this.failure(error); }
       finally { if (this.refiningEpoch === token) this.refiningEpoch = null; }
     }
@@ -333,9 +337,11 @@ var MarginFitRuntime = (() => {
       this.anchor = this.viewer.currentScale;
       this.view._updateViewStats();
       if (this.host.enabled()) this.begin();
+      else this.host.indexer?.stop(this);
     }
     close(unloading = false) {
       if (this.closed) return;
+      this.host.indexer?.stop(this);
       this.closed = true; this.epoch++; this.cancelTimer();
       this.host.clearTimeout(this.inputFlushTimer); this.inputFlushTimer = null;
       try { this.resize?.disconnect(); } catch (_) { /* frame already destroyed */ }
@@ -344,14 +350,17 @@ var MarginFitRuntime = (() => {
       if (!unloading) try { if (!this.view._destroyed) this.view._updateViewStats(); } catch (_) { /* dead view */ }
     }
   }
-  async function detect(app, win, p, rotation) {
+  async function detect(app, win, p, rotation, token = null) {
+    if (token?.cancelled) return null;
     const start = Date.now();
     const page = unwrap(await app.pdfDocument.getPage(p));
+    if (token?.cancelled) return null;
     const viewerRotation = app.pdfViewer.pagesRotation || 0;
     const viewport = unwrap(page.getViewport(into(win,{ scale: 1, rotation: rotation ?? (page.rotate+viewerRotation)%360 })));
     let canvas;
     try {
       const content = unwrap(await page.getTextContent());
+      if (token?.cancelled) return null;
       const folioAnalysis = C.textAndFolio(content,viewport);
       const text = folioAnalysis.all;
       const suspectText = C.textNeedsInkCalibration(text,viewport.width);
@@ -361,10 +370,12 @@ var MarginFitRuntime = (() => {
         try {
           const ops = unwrap(win.pdfjsLib)?.OPS || unwrap(app.pdfjsLib)?.OPS;
           const instructions = unwrap(await page.getOperatorList());
+          if (token?.cancelled) return null;
           if (C.isTextOnlyOps(instructions,ops,text)) {
             // Annotation appearances may extend beyond text; a non-empty list is unsafe
             // for a text-only crop, even when the underlying page operations are text.
             const annotations=unwrap(await page.getAnnotations(into(win,{intent:'display'})));
+            if (token?.cancelled) return null;
             if (Array.isArray(annotations) && annotations.length === 0)
               return {raw:text,width:viewport.width,height:viewport.height,rotation:viewport.rotation,
                 viewerRotation,quality:'reliable',version:C.VERSION,fastPath:true,
@@ -385,7 +396,12 @@ var MarginFitRuntime = (() => {
       context.skipBlender = true;
       context.fillStyle = "rgb(255,255,255)";
       context.fillRect(0,0,canvas.width,canvas.height);
-      await unwrap(page.render(into(win,{ canvasContext: context, viewport: low, background: "rgb(255,255,255)" }))).promise;
+      const renderTask=unwrap(page.render(into(win,{
+        canvasContext:context,viewport:low,background:"rgb(255,255,255)"})));
+      if (token) token.cancelRender=()=>renderTask.cancel();
+      if (token?.cancelled) { renderTask.cancel(); return null; }
+      await renderTask.promise;
+      if (token?.cancelled) return null;
       const pixels = context.getImageData(0,0,canvas.width,canvas.height);
       // Copy once into the chrome realm instead of paying cross-compartment costs per pixel.
       const rgba = Components.utils.cloneInto(pixels.data,{});
@@ -427,9 +443,13 @@ var MarginFitRuntime = (() => {
         revision: app.pdfDocument.fingerprints?.join(":"), elapsedMs: Date.now()-start,
         rasterBytes: canvas.width*canvas.height*4, copiedRasterBytes: rgba.byteLength };
     } catch (error) {
+      if (token?.cancelled) return null; // intentional preemption is not a full-page result
       return { raw: [0,0,viewport.width,viewport.height], width: viewport.width, height: viewport.height,
         rotation: viewport.rotation, quality: "fallback", reason: "render-failed", detail: String(error), version: C.VERSION };
-    } finally { if (canvas) { canvas.width = 0; canvas.height = 0; } }
+    } finally {
+      if (token) token.cancelRender=null;
+      if (canvas) { canvas.width = 0; canvas.height = 0; }
+    }
   }
   class Plugin {
     constructor({ Zotero, Services, timers, cacheModule }) {
@@ -444,6 +464,7 @@ var MarginFitRuntime = (() => {
         const PathUtils = chromeWindow?.PathUtils;
         if (IOUtils && PathUtils) this.cacheIO = { IOUtils, PathUtils };
       } catch (_) { /* Keep the plugin functional if profile cache APIs are unavailable. */ }
+      this.indexer = new C.IdleIndexer(this);
       this.controllers = new Map(); this.sessions = new Map(); this.toolbars = new Map();
       this.pending = new Set(); this.active = false;
       this.render = event => this.toolbar(event);
@@ -539,7 +560,7 @@ var MarginFitRuntime = (() => {
             } catch (_) { return null; }
           };
           session = new C.Session(app.pdfDocument.numPages,
-            (p,r) => detect(app,view._iframeWindow,p,r),store,restore);
+            (p,r,token) => detect(app,view._iframeWindow,p,r,token),store,restore);
           this.sessions.set(key,session);
         }
         this.controllers.set(view,new Controller(view,session,this));
@@ -646,6 +667,7 @@ var MarginFitRuntime = (() => {
     }
     stop() {
       this.active = false;
+      this.indexer.close();
       this.timers.clearInterval(this.poll);
       this.Services.prefs.removeObserver(PREF,this.observer);
       this.Zotero.Reader.unregisterEventListener("renderToolbar",this.render);

@@ -112,7 +112,7 @@ test('explicit fitting still warms missing neighbors after idle without another 
   await f.session.l1();f.session.metrics.analyzed.length=0;
   await f.controller.request('width');const writes=f.controller.metrics.writes.length;
   f.advance(500);await f.controller.refine();
-  assert.deepEqual(f.session.metrics.analyzed,[8,9,10,7]);
+  assert.deepEqual(f.session.metrics.analyzed,[8,9,7]);
   assert.equal(f.controller.metrics.writes.length,writes);f.controller.close();
 });
 test('switching detection off finishes only the in-flight L1 page and resumes from cache on enable',async()=>{
@@ -126,6 +126,20 @@ test('switching detection off finishes only the in-flight L1 page and resumes fr
   assert.deepEqual(started,[1,5,6,11,12,17,18]);f.controller.close();
 });
 
+test('actual page turns prioritize prefetch in the reading direction',async()=>{
+  const f=setup(4);f.enable();
+  f.viewer.currentPageNumber=3;
+  f.viewer._getVisiblePages=()=>({views:[{id:3,view:f.viewer.getPageView(2)}]});
+  f.controller.input(false);
+  await new Promise(r=>setTimeout(r,130));
+  assert.equal(f.controller.readingDirection,1);
+  f.viewer.currentPageNumber=2;
+  f.viewer._getVisiblePages=()=>({views:[{id:2,view:f.viewer.getPageView(1)}]});
+  f.controller.input(false);
+  await new Promise(r=>setTimeout(r,130));
+  assert.equal(f.controller.readingDirection,-1);
+  f.controller.close();
+});
 test('scroll bursts coalesce expensive visible-page geometry reads',async()=>{
   const f=setup();f.enable();
   let calls=0;

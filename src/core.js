@@ -26,8 +26,10 @@ var MarginFitCore = (() => {
     }
     return result;
   }
-  function neighbors(p, count) {
-    return [p, p + 1, p + 2, p + 3, p - 1, p - 2, p - 3].filter(n => n >= 1 && n <= count);
+  function neighbors(p, count, direction = 1) {
+    const step = direction < 0 ? -1 : 1;
+    // Only the immediately adjacent pages earn speculative work.
+    return [p, p + step, p - step].filter(n => n >= 1 && n <= count);
   }
   function parityModels(cache, pages) {
     const models = {};
@@ -391,7 +393,10 @@ var MarginFitCore = (() => {
       this.closed = false;
       this.paused = false;
       this.activeUntil = 0;
-      this.metrics = { analyzed: [], cacheHits: 0, active: 0, peakConcurrent: 0 };
+      this.visitedPages = new Set();
+      this.speculative = new Map();
+      this.metrics = { analyzed: [], cacheHits: 0, active: 0, peakConcurrent: 0,
+        distinctVisits: 0, prefetchedRenders: 0, prefetchHits: 0 };
     }
     serial(job) {
       const task = this.tail.then(job);
@@ -399,6 +404,13 @@ var MarginFitCore = (() => {
       return task;
     }
     setEnabled(enabled) { this.paused = !enabled; }
+    visit(p, rotation) {
+      if (this.visitedPages.has(p)) return;
+      this.visitedPages.add(p);
+      this.metrics.distinctVisits++;
+      if (this.speculative.get(p) === rotation) this.metrics.prefetchHits++;
+      this.speculative.delete(p);
+    }
     noteActivity(time = Date.now()) { this.activeUntil = Math.max(this.activeUntil, time + IDLE_MS); }
     allowExplicitRequest() { this.activeUntil = 0; }
     async waitForQuiet() {
@@ -465,7 +477,7 @@ var MarginFitCore = (() => {
     visible(p, rotation, valid = () => true) {
       return this.serial(() => valid() ? this.read(p, rotation) : null);
     }
-    async local(p, rotation, valid, onCurrent) {
+    async local(p, rotation, valid, onCurrent, direction = 1) {
       if (this.closed || this.paused || !valid()) return;
       // Render the current page before any representative or neighbor pages.
       await this.serial(async () => {
@@ -473,22 +485,32 @@ var MarginFitCore = (() => {
         const value = await this.read(p, rotation);
         if (value && !this.closed && !this.paused && valid()) await onCurrent(value);
       });
+      // Warm only the two immediate neighbors, in the user's reading direction
+      // first. This happens before distant L1 samples so the next page is ready.
+      for (const n of neighbors(p, this.count, direction).slice(1)) {
+        if (this.closed || this.paused || !valid()) break;
+        await this.serial(async () => {
+          if (!await this.waitForQuiet() || !valid()) return;
+          const cached = this.cache.get(n);
+          const alreadyCached = cached && cached.rotation === rotation;
+          const value = await this.read(n, rotation);
+          if (value && !alreadyCached && !this.visitedPages.has(n)) {
+            this.speculative.set(n, rotation);
+            this.metrics.prefetchedRenders++;
+          }
+        });
+      }
       if (this.closed || this.paused || !valid() || !await this.l1()) return;
       // A newly confirmed numbered-folio pattern may improve the current page's
       // width; notify once, without rerendering or disturbing other documents.
       const current = this.cache.get(p);
       if (this.folioPattern && current?.fastPath && current?.folio && valid())
         await onCurrent(current, true);
-      // Background neighboring pages remain an opportunistic idle-only task.
-      for (const n of neighbors(p, this.count).slice(1)) {
-        if (this.closed || this.paused || !valid()) break;
-        await this.serial(async () => {
-          if (!await this.waitForQuiet() || !valid()) return;
-          await this.read(n, rotation);
-        });
-      }
     }
-    close() { this.closed = true; this.store?.close(this.cache); this.cache.clear(); }
+    close() {
+      this.closed = true; this.store?.close(this.cache); this.cache.clear();
+      this.speculative.clear(); this.visitedPages.clear();
+    }
   }
   return { VERSION, SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,
     parityModels, prediction, multiply, textBox, textNeedsInkCalibration, sparseEdgeSupport, reconcileTextInk, textAndFolio, folioPattern, fitPageRecord,

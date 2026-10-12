@@ -77,7 +77,10 @@ async function runTests() {
     check(doc.getElementById('zoomAuto'),'Original Reset Zoom exists');
     await until(()=>!doc.getElementById('zoomAuto').disabled,'native Reset Zoom enabled');
     check(true,'React enables native Reset Zoom through instance stats callback');
-    check(JSON.stringify(c.session.metrics.analyzed.slice(1,7))===JSON.stringify([5,6,11,12,17,18]),'L1 representative samples run after the actual restored page');
+    check(JSON.stringify(c.session.metrics.analyzed.slice(0,3))===JSON.stringify([8,9,7]),
+      'Only immediate next/previous pages are prefetched before distant L1 samples');
+    check([5,6,11,12,17,18].every(p=>c.session.cache.has(p)),
+      'L1 representative samples still complete after nearby prefetch');
     check(c.metrics.writes[0].page===8,'First fit targets restored page 8');
     await until(()=>c.session.cache.has(8) && c.appliedEpoch>=0,'L2 current page refined');
     await until(()=>c.prefetchedEpoch===c.epoch,'initial L2 prefetch');
@@ -123,8 +126,10 @@ async function runTests() {
     await until(()=>!c.manual,'re-enabled');
     await c.request('width');
     await until(()=>c.prefetchedEpoch===c.epoch,'prefetch after explicit fit');
-    check([c.page()-1,c.page(),c.page()+1,c.page()+2,c.page()+3].filter(p=>p>=1 && p<=24).every(p=>c.session.cache.has(p)),
-      'Explicit fit is followed by idle neighbor prefetch');
+    check([c.page()-1,c.page(),c.page()+1].filter(p=>p>=1 && p<=24).every(p=>c.session.cache.has(p)),
+      'Explicit fit is followed by idle immediate-neighbor prefetch');
+    measurements.prefetch={rendered:c.session.metrics.prefetchedRenders,
+      hits:c.session.metrics.prefetchHits,uniqueVisits:c.session.metrics.distinctVisits};
     const settledTop=c.container.scrollTop;
     c.container.dispatchEvent(new c.win.WheelEvent('wheel',{deltaY:10,bubbles:true}));
     c.container.scrollTop=settledTop+10;
@@ -267,7 +272,10 @@ async function runTests() {
     for(const name of ['blank.pdf','dark-background.pdf']) {
       const f=await open(name);await until(()=>f.c.session.cache.has(1),'fallback detector');
       lastReader=f.reader;
-      check(f.c.session.cache.get(1).quality==='fallback',name+' safely falls back');
+      const fallbackPage=f.c.session.cache.get(1);
+      check(fallbackPage.quality==='fallback' && fallbackPage.boundsKind==='fallback' &&
+        fallbackPage.samplingRate<=.255,
+        name+' safely retains a full-page fallback without a second full scan');
       await until(()=>f.reader._iframeWindow.document.querySelector('[data-marginfit="detect"]').dataset.status==='fallback','fallback tooltip');
       const tooltip=f.reader._iframeWindow.document.querySelector('[data-marginfit="detect"]').title;
       check(tooltip.startsWith('Detect Margins: On — Uncertain page boundaries') && tooltip.includes(' / 识别边界：开启 — 无法可靠识别'),

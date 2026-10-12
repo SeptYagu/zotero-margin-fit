@@ -7,9 +7,11 @@ test('L1 samples exactly three adjacent odd/even pairs and deduplicates short do
   assert.deepEqual(C.samples(1),[1]);
   assert.deepEqual(C.samples(2),[1,2]);
 });
-test('L2 priority uses physical page numbers and clamps at each end',()=>{
-  assert.deepEqual(C.neighbors(8,24),[8,9,10,11,7,6,5]);
+test('L2 prefetches only immediate adjacent pages, reading direction first',()=>{
+  assert.deepEqual(C.neighbors(8,24),[8,9,7]);
+  assert.deepEqual(C.neighbors(8,24,-1),[8,7,9]);
   assert.deepEqual(C.neighbors(1,2),[1,2]);
+  assert.deepEqual(C.neighbors(24,24),[24,23]);
 });
 test('L1 conservative parity unions retain alternating asymmetric binding margins',()=>{
   const cache=new Map([[1,record([20,40,120,180])],[2,record([80,30,180,200])],[3,record([25,45,125,185])]]);
@@ -74,10 +76,25 @@ test('visible page precedes lazy L1 and serial detection reuses the cached resul
   await Promise.all([visible,background]);
   await session.local(8,0,()=>true,()=>{});
   assert.equal(peak,1);
-  assert.deepEqual(analyzed,[8,5,6,11,12,17,18,9,10,7]);
-  assert.equal(session.cache.size,10);
+  assert.deepEqual(analyzed,[8,5,6,11,12,17,18,9,7]);
+  assert.equal(session.cache.size,9);
   await session.local(8,0,()=>true,()=>{});
-  assert.equal(analyzed.length,10);
+  assert.equal(analyzed.length,9);
+});
+test('two-page prefetch tracks useful visits and never renders distant pages',async()=>{
+  const session=new C.Session(24,async()=>record());
+  session.visit(8,0);
+  await session.local(8,0,()=>true,()=>{},-1);
+  assert.deepEqual(session.metrics.analyzed.slice(0,3),[8,7,9]);
+  assert.equal(session.metrics.prefetchedRenders,2);
+  assert.equal(session.metrics.distinctVisits,1);
+  session.visit(7,0);
+  session.visit(7,0);
+  session.visit(9,90);
+  assert.equal(session.metrics.prefetchHits,1,'rotation mismatch does not count as a usable prefetch');
+  assert.equal(session.metrics.distinctVisits,3);
+  assert.equal(session.metrics.peakConcurrent,1);
+  session.close();
 });
 test('foreground Fit overtakes remaining L1 pages without parallel rendering',async()=>{
   let release,signal;

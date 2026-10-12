@@ -24,6 +24,7 @@ var MarginFitRuntime = (() => {
       this.container = this.viewer.container;
       this.mode = host.mode(); this.anchor = this.viewer.currentScale;
       this.epoch = 0; this.lastInput = host.now(); this.lastPage = this.viewer.currentPageNumber;
+      this.readingDirection = 1;
       this.closed = false; this.muted = false; this.manual = false;
       // A user's movement within a page is authoritative until they leave it.
       // This is independent of manual zoom, which existing code already tracks.
@@ -131,8 +132,10 @@ var MarginFitRuntime = (() => {
         this.inputFlushTimer = null;
         const p = this.page();
         if (p !== this.lastPage) {
+          this.readingDirection = p > this.lastPage ? 1 : -1;
           this.manual = false;
           this.userHeldPage = null;
+          this.session.visit(p, this.viewer.getPageView(p-1).viewport.rotation);
         }
         this.lastPage = p;
         this.arm();
@@ -155,6 +158,7 @@ var MarginFitRuntime = (() => {
       const token = this.epoch, p = this.page();
       try {
         const rotation = this.viewer.getPageView(p-1).viewport.rotation;
+        this.session.visit(p, rotation);
         // First visible fit uses its exact page bounds; distant L1 samples must
         // not delay it or cause an early prediction followed by a zoom jump.
         const r = await this.session.visible(p, rotation,
@@ -176,6 +180,7 @@ var MarginFitRuntime = (() => {
       this.refiningEpoch = token;
       this.lastPage = p;
       const rotation = this.viewer.getPageView(p-1).viewport.rotation;
+      this.session.visit(p, rotation);
       try {
         await this.session.local(p, rotation, () => this.stable(token, p), async (record, afterL1 = false) => {
           if (!this.stable(token,p)) return;
@@ -189,7 +194,7 @@ var MarginFitRuntime = (() => {
           this.appliedEpoch = token;
           if (record.quality !== "reliable") { this.fallback(record.reason); return; }
           await this.apply(record, p, token);
-        });
+        }, this.readingDirection);
         if (this.stable(token,p)) this.prefetchedEpoch = token;
       } catch (error) { this.failure(error); }
       finally { if (this.refiningEpoch === token) this.refiningEpoch = null; }
@@ -206,6 +211,7 @@ var MarginFitRuntime = (() => {
       this.session.allowExplicitRequest?.();
       try {
         const rotation = this.viewer.getPageView(p-1).viewport.rotation;
+        this.session.visit(p, rotation);
         const record = await this.session.visible(p, rotation,
           () => !this.closed && this.host.enabled() && token === this.epoch);
         if (!record || this.closed || token !== this.epoch || !this.host.enabled()) return;
@@ -383,16 +389,14 @@ var MarginFitRuntime = (() => {
       const pixels = context.getImageData(0,0,canvas.width,canvas.height);
       // Copy once into the chrome realm instead of paying cross-compartment costs per pixel.
       const rgba = Components.utils.cloneInto(pixels.data,{});
-      // One low-res render and RGBA transfer. Both ordinary and suspect-text
-      // pages use the same diagonal ~25% sample; calibration adds *no* full
-      // scan. Existing blank/dark/dense fallbacks retain legacy conservative
-      // whole-image handling, rather than silently cropping unreadable content.
-      let ink = C.sparseInkBox({width:pixels.width,height:pixels.height,data:rgba});
+      // The conservative fallback already keeps the full page when sparse
+      // evidence is absent. A subsequent full pixel scan would only add CPU
+      // to blank, dark, or dense pages without improving a safe fitting box.
+      const ink = C.sparseInkBox({width:pixels.width,height:pixels.height,data:rgba});
       const estimated = ink.quality === "estimated";
       const support = estimated && suspectText
         ? C.sparseEdgeSupport(ink,pixels.width,pixels.height) : null;
       const body = estimated ? C.sparseBodyWidth(ink,pixels.width,pixels.height) : null;
-      if (!estimated) ink = C.inkBox({width:pixels.width,height:pixels.height,data:rgba});
       const raster = ink.box?.map(n => n/factor);
       const merged = C.reconcileTextInk(text,raster,viewport.width,
         suspectText && estimated,support);
@@ -412,7 +416,8 @@ var MarginFitRuntime = (() => {
         }
       }
       return { raw, widthFitRaw, width: viewport.width, height: viewport.height, rotation: viewport.rotation,
-        quality, boundsKind: estimated ? "estimated" : "verified", samplingRate: estimated ? ink.visited/(pixels.width*pixels.height) : 1,
+        quality, boundsKind: estimated ? "estimated" : "fallback",
+        samplingRate: ink.visited ? ink.visited/(pixels.width*pixels.height) : 0,
         boundaryConfidence: support?.confidence || body?.confidence || 0,
         reason: suspectText && estimated &&
           (merged?.[0]>Math.min(text?.[0]??0,raster?.[0]??0)+.1 ||

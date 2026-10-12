@@ -64,3 +64,8 @@ Evidence classes: code-confirmed; native-test-confirmed; unverified; superseded;
 5. Do not revive PAGE mode, migration code, unproved raster-first or speculative concurrency/telemetry frameworks.
 
 This is an audit record, not an instruction to change code or publish another release.
+
+## Additional documentation encoding finding
+- The current README's Chinese introductory line (line 5) is not merely terminal mojibake: direct UTF-8 Python inspection confirms literal ASCII question marks replacing its original Chinese text. This is a confirmed markdown content corruption, not a runtime source or manifest issue.
+- The current manifest.json is valid UTF-8 JSON; Node JSON.parse succeeds and Zotero loaded the XPI in tests. A legacy PowerShell Get-Content/ConvertFrom-Json call without explicit -Encoding utf8 mis-decoded it and must not be reported as an invalid manifest.
+- Document repair should restore the Chinese README line from the intended verified wording rather than guessing from corrupted question marks.

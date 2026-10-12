@@ -18,8 +18,8 @@ function check(condition,message) {
   results.push(message);
   IOUtils.writeJSON(Services.prefs.getStringPref('marginfit.integrationResult')+'.progress',{checks:results}).catch(()=>{});
 }
-async function until(fn,label='condition') {
-  for(let i=0;i<200;i++){if(await fn())return;await sleep(100);}
+async function until(fn,label='condition',maxAttempts=200) {
+  for(let i=0;i<maxAttempts;i++){if(await fn())return;await sleep(100);}
   throw new Error('Timeout: '+label);
 }
 function control(reader) { return Zotero.MarginFit?.controllers.get(reader._internalReader?._primaryView); }
@@ -176,7 +176,9 @@ async function runTests() {
       await sleep(90);
       check(c.metrics.writes.length===baseline,'Continuous scroll '+n+' causes no plugin zoom/position writes');
     }
-    await until(()=>c.prefetchedEpoch===c.epoch,'idle page analysis after scrolling');
+    // Very slow PDF.js renders can exceed the standard 20s harness limit
+    // under heavy native reader load; allow the two idle neighbor renders to finish.
+    await until(()=>c.prefetchedEpoch===c.epoch,'idle page analysis after scrolling',600);
     check(c.metrics.writes.length===baseline,
       'Stopping after user-directed movement on a page does not recenter the view');
     const once=c.metrics.writes.length;

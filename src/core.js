@@ -388,6 +388,7 @@ var MarginFitCore = (() => {
         if (!this.closed) for (const [p,r] of saved) this.cache.set(p,r);
       }).catch(()=>{}) : Promise.resolve();
       this.models = null;
+      this.folioPattern = null;
       this.l1Promise = null;
       this.tail = Promise.resolve();
       this.closed = false;
@@ -395,8 +396,11 @@ var MarginFitCore = (() => {
       this.activeUntil = 0;
       this.visitedPages = new Set();
       this.speculative = new Map();
+      this.folioValidationPromise = null;
+      this.folioAttempts = new Set();
       this.metrics = { analyzed: [], cacheHits: 0, active: 0, peakConcurrent: 0,
-        distinctVisits: 0, prefetchedRenders: 0, prefetchHits: 0 };
+        distinctVisits: 0, prefetchedRenders: 0, prefetchHits: 0,
+        folioSkipped: 0, folioValidationRenders: 0, folioEarlyStops: 0 };
     }
     serial(job) {
       const task = this.tail.then(job);
@@ -472,7 +476,55 @@ var MarginFitCore = (() => {
       }, error => { this.l1Promise = null; throw error; });
       return this.l1Promise;
     }
-    // The actual page is never blocked by L1 model building. Both startup and
+    // Runtime only needs book-wide samples to verify a *current* pure-text
+    // folio candidate. No useful candidate means zero distant-page renders.
+    async validateFolio(p, valid = () => true) {
+      await this.ready;
+      if (this.closed || this.paused || !valid()) return null;
+      const current = this.cache.get(p);
+      if (this.count < 4 || !current?.fastPath || current.quality !== "reliable" || !current.folio) {
+        this.metrics.folioSkipped++;
+        return null;
+      }
+      if (this.folioPattern) return this.folioPattern;
+      const key = p + ":" + current.rotation;
+      if (this.folioAttempts.has(key)) return null;
+      if (this.folioValidationPromise) {
+        await this.folioValidationPromise;
+        return this.closed || this.paused || !valid() ? null : this.validateFolio(p, valid);
+      }
+      // The current page plus already warm adjacent pages count toward the
+      // same four-page corroboration requirement as the original folio model.
+      const pages = [...new Set([p, ...neighbors(p, this.count), ...samples(this.count)])];
+      const task = (async () => {
+        const checked = [];
+        for (const n of pages) {
+          if (this.closed || this.paused || !valid()) return null;
+          const outcome = await this.serial(async () => {
+            if (!await this.waitForQuiet() || this.closed || this.paused || !valid()) return false;
+            const cached = this.cache.has(n);
+            const value = await this.read(n);
+            if (value && !cached) this.metrics.folioValidationRenders++;
+            return !!value;
+          });
+          if (!outcome || this.closed || this.paused || !valid()) return null;
+          checked.push(n);
+          const pattern = folioPattern(checked, this.cache);
+          if (pattern && fitPageRecord(current, pattern, p).folioExcluded) {
+            this.folioPattern = pattern;
+            if (checked.length < pages.length) this.metrics.folioEarlyStops++;
+            this.folioAttempts.add(key);
+            return pattern;
+          }
+        }
+        this.folioAttempts.add(key);
+        return null;
+      })();
+      this.folioValidationPromise = task;
+      try { return await task; }
+      finally { if (this.folioValidationPromise === task) this.folioValidationPromise = null; }
+    }
+    // The actual page is never blocked by book-wide samples. Both startup and
     // explicit Fit share this serialized foreground path (one detector worker).
     visible(p, rotation, valid = () => true) {
       return this.serial(() => valid() ? this.read(p, rotation) : null);
@@ -500,16 +552,17 @@ var MarginFitCore = (() => {
           }
         });
       }
-      if (this.closed || this.paused || !valid() || !await this.l1()) return;
+      if (this.closed || this.paused || !valid()) return;
+      const pattern = await this.validateFolio(p, valid);
       // A newly confirmed numbered-folio pattern may improve the current page's
       // width; notify once, without rerendering or disturbing other documents.
       const current = this.cache.get(p);
-      if (this.folioPattern && current?.fastPath && current?.folio && valid())
+      if (pattern && current?.fastPath && current?.folio && valid())
         await onCurrent(current, true);
     }
     close() {
       this.closed = true; this.store?.close(this.cache); this.cache.clear();
-      this.speculative.clear(); this.visitedPages.clear();
+      this.speculative.clear(); this.visitedPages.clear(); this.folioAttempts.clear();
     }
   }
   return { VERSION, SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,

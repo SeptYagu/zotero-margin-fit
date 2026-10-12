@@ -59,8 +59,9 @@ async function runTests() {
     await until(()=>c.metrics.writes.some(w=>w.type==='position'),'first visible-page automatic fitting');
     measurements.firstSmartFitFromImportMs=Date.now()-started;
     check(c.session.metrics.analyzed[0]===8,'Restored visible page 8 is detected before unrelated L1 samples');
-    await until(()=>c.session.models,'lazy representative samples complete');
-    measurements.l1DetectionMs=c.session.metrics.l1ElapsedMs;
+    await until(()=>c.session.cache.has(7) && c.session.cache.has(9),
+      'only adjacent pages are prefetched');
+    measurements.folioValidationRenders=c.session.metrics.folioValidationRenders;
     check(doc.querySelectorAll('[data-marginfit]').length===2,'Exactly two new controls; native Reset Zoom retained');
     const heightButton=doc.querySelector('[data-marginfit="height"]'),detectButton=doc.querySelector('[data-marginfit="detect"]');
     check(heightButton.title==='Fit Height / 适合高度' && heightButton.getAttribute('aria-label')===heightButton.title &&
@@ -79,8 +80,8 @@ async function runTests() {
     check(true,'React enables native Reset Zoom through instance stats callback');
     check(JSON.stringify(c.session.metrics.analyzed.slice(0,3))===JSON.stringify([8,9,7]),
       'Only immediate next/previous pages are prefetched before distant L1 samples');
-    check([5,6,11,12,17,18].every(p=>c.session.cache.has(p)),
-      'L1 representative samples still complete after nearby prefetch');
+    check([5,6,11,12,17,18].every(p=>!c.session.cache.has(p)),
+      'Normal graphics PDF skips all six distant L1 sample pages');
     check(c.metrics.writes[0].page===8,'First fit targets restored page 8');
     await until(()=>c.session.cache.has(8) && c.appliedEpoch>=0,'L2 current page refined');
     await until(()=>c.prefetchedEpoch===c.epoch,'initial L2 prefetch');
@@ -88,7 +89,7 @@ async function runTests() {
     measurements.restoredReadingAnchor={before:restoredY,after:fittedY};
     check(Math.abs(fittedY-restoredY)*c.viewer.getPageView(7).viewport.scale<2,
       'Initial prediction and precise refinement retain the restored mid-page reading coordinate');
-    const odd=c.session.cache.get(5),even=c.session.cache.get(6);
+    const odd=c.session.cache.get(7),even=c.session.cache.get(8);
     check(odd.raw[0]>even.raw[0]+70 && odd.raw[2]>even.raw[2]+70,'Independent left/right detection handles alternating binding margins');
     check(even.raw[1]<150 && even.raw[3]>649,'Four-edge detector includes body and isolated page number');
     check(c.session.metrics.peakConcurrent===1,'L1 and L2 share a single analysis worker');
@@ -233,7 +234,7 @@ async function runTests() {
     ireader.toggleVerticalSplit(true);
     await until(()=>ireader._secondaryView && Zotero.MarginFit.controllers.has(ireader._secondaryView),'split controller');
     const second=Zotero.MarginFit.controllers.get(ireader._secondaryView);
-    await second.session.l1();await sleep(700);
+    await second.session.ready;await sleep(700);
     const primaryScale=c.viewer.currentScale;
     await second.request('height');
     check(second.mode==='height' && c.viewer.currentScale===primaryScale,'Split pane has an independent zoom anchor and direction');
@@ -298,16 +299,17 @@ async function runTests() {
     const analyzedBeforeOFF=paused.c.session.metrics.analyzed.length;
     const activeBeforeOFF=paused.c.session.metrics.active;
     const writesBeforeOFF=paused.c.metrics.writes.length;
-    check(analyzedBeforeOFF<6,'OFF-during-lazy-L1 regression starts before background sampling finishes');
+    check(analyzedBeforeOFF<4,'OFF-during-adaptive-prefetch starts with little background work');
     pausedDoc.querySelector('[data-marginfit="detect"]').click();
     await paused.c.session.tail;
     check(!paused.c.session.models && paused.c.session.metrics.analyzed.length<=analyzedBeforeOFF+activeBeforeOFF,
-      'Switch OFF lets only an in-flight sample finish and starts no more L1 pages');
+      'Switch OFF lets only an in-flight detection finish');
     check(paused.c.metrics.writes.length===writesBeforeOFF,'Switch OFF prevents late fit writes after deactivation');
     pausedDoc.querySelector('[data-marginfit="detect"]').click();
-    await until(()=>paused.c.session.models && paused.c.session.cache.has(13),'resume paused L1 and L2');
-    check([5,6,11,12,17,18].every(p=>paused.c.session.metrics.analyzed.filter(n=>n===p).length===1),
-      'Switch ON resumes L1 and reuses completed samples without repeated analysis');
+    await until(()=>paused.c.prefetchedEpoch===paused.c.epoch,'resume adaptive immediate-neighbor prefetch');
+    const pausedPage=paused.c.page();
+    check([pausedPage-1,pausedPage,pausedPage+1].filter(n=>n>=1 && n<=24)
+      .every(n=>paused.c.session.cache.has(n)), 'Switch ON resumes nearby detection without global L1');
     const finalC=control(lastReader),finalDoc=lastReader._iframeWindow.document;
     const view=finalC.view,wrappedWidth=view.zoomPageWidth,wrappedStats=view._onChangeViewStats;
     await addon.disable();

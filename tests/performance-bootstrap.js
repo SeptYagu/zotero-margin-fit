@@ -31,7 +31,7 @@ async function run(){
     const reader=await Zotero.Reader.open(item.id,{position:{pageIndex:7,rects:[[200,390,220,410]]}});
     await until(()=>Zotero.MarginFit?.controllers.get(reader._internalReader?._primaryView),'attach');
     const c=Zotero.MarginFit.controllers.get(reader._internalReader._primaryView);
-    await until(()=>c.session.models&&c.session.cache.has(8),'L1 L2');
+    await until(()=>c.session.cache.has(8)&&c.session.cache.has(9),'visible and neighbor detection');
     await sleep(900);
     const smartScale=c.viewer.currentScale;
     Services.prefs.setBoolPref(PREF,false);

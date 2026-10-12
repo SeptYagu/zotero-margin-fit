@@ -34,7 +34,7 @@ async function run(){
   assert(plugin.cacheIO,'profile cache IO interfaces available');
 
   const pure=await open('pure-text.pdf');
-  await until(()=>pure.c.session.models,'pure L1');
+  await until(()=>pure.c.session.cache.has(1),'pure text current-page detection');
   const p=await pure.c.session.serial(()=>pure.c.session.read(1,0));
   assert(p?.quality==='reliable','pure text provides reliable bounds');
   assert(p.fastPath===true && p.rasterBytes===0,'text-only PDF skips offscreen raster');
@@ -52,8 +52,9 @@ async function run(){
   }
 
   const numbered=await open('pure-folio.pdf');
-  await until(()=>numbered.c.session.models,'folio L1');
-  assert(!!numbered.c.session.folioPattern,'L1 recognizes repeated numbered footer without extra scans');
+  await until(()=>numbered.c.session.folioPattern,'adaptive folio validation');
+  assert(!!numbered.c.session.folioPattern && numbered.c.session.metrics.folioEarlyStops>=1,
+    'adaptive folio sampling confirms four matching pages then stops early');
   const nr=await numbered.c.session.serial(()=>numbered.c.session.read(8,0));
   assert(nr.folio && nr.folio.body[3]<nr.raw[3],
     'high-confidence folio has a separately preserved body fitting box');
@@ -70,7 +71,8 @@ async function run(){
     'v0.1.6 retains the numbered footer in native Height Fit: '+folioScale+' vs '+fullScale);
   numbered.c.session.folioPattern=folioModel;
   const synthetic=await open('mixed-folio-score.pdf');
-  await until(()=>synthetic.c.session.cache.has(5),'mixed music-book L1');
+  // Without a current folio candidate, distant score pages are no longer
+  // eagerly rendered; request this specific page for its independent geometry test.
   const mr=await synthetic.c.session.serial(()=>synthetic.c.session.read(5,0));
   assert(mr.boundsKind==='estimated' && mr.samplingRate<=.255,
     'music-theory surrogate uses one-in-four diagonal sampling');
@@ -90,11 +92,13 @@ async function run(){
     'true Zotero width fit enlarges staff body after excluding isolated left folio');
   mr.widthFitRaw=backup;
   const years=await open('edge-year.pdf');
-  await until(()=>years.c.session.models,'constant year L1');
+  await until(()=>years.c.prefetchedEpoch===years.c.epoch,'constant year validated or skipped');
   assert(years.c.session.folioPattern===null,'constant footer year is not excluded');
   const book=await open('asymmetric-book.pdf');
-  await until(()=>book.c.session.models,'book L1');
-  assert(book.c.session.metrics.analyzed.length>=6,'first open detects L1');
+  await until(()=>book.c.prefetchedEpoch===book.c.epoch,'book immediate-neighbor prefetch');
+  assert(book.c.session.metrics.folioSkipped>=1 &&
+    [5,6,11,12,17,18].every(p=>!book.c.session.cache.has(p)),
+    'graphic book detects nearby pages but skips all distant L1 samples');
   const store=book.c.session.store;
   assert(!!store?.file,'disk store has fingerprint path');
   await store.flush();
@@ -106,11 +110,12 @@ async function run(){
   book.reader.close();
   await until(()=>book.c.closed,'reader disposed');
   const again=await open('asymmetric-book.pdf',book.item);
-  await until(()=>again.c.session.models,'reopen L1');
-  assert([5,6,11,12,17,18].every(p=>!again.c.session.metrics.analyzed.includes(p)),
-    'reopen reuses all cached L1 samples; a newly visible uncached page may render');
-  assert(again.c.session.metrics.cacheHits>=6,'reopen records L1 cache hits');
-  assert(again.c.session.cache.get(5)?.raw[0]>again.c.session.cache.get(6)?.raw[0],'parity geometry retained');
+  await until(()=>again.c.prefetchedEpoch===again.c.epoch,'reopen immediate-neighbor cache');
+  assert([1,2].every(p=>!again.c.session.metrics.analyzed.includes(p)),
+    'reopen reuses persisted current and adjacent page boundaries');
+  assert(again.c.session.metrics.cacheHits>=2,'reopen records current and neighbor cache hits');
+  assert(again.c.session.cache.get(1)?.raw && again.c.session.cache.get(2)?.raw,
+    'current and neighbor geometry retained');
   saved.reopenAnalyzed=again.c.session.metrics.analyzed.length;
   saved.reopenCacheHits=again.c.session.metrics.cacheHits;
   await finish({passed:true,details:saved});

@@ -127,6 +127,48 @@ test('folio model can refine the visible width once after lazy representative sa
   assert.deepEqual(callbacks,[{afterL1:false,matched:false},{afterL1:true,matched:true}]);
   session.close();
 });
+test('graphic pages skip all distant sampling and repeated visits remain cached',async()=>{
+  const session=new C.Session(24,async()=>record());
+  await session.local(8,0,()=>true,()=>{});
+  assert.deepEqual(session.metrics.analyzed,[8,9,7]);
+  assert.equal(session.metrics.folioSkipped,1);
+  assert.equal(session.models,null);
+  await session.local(8,0,()=>true,()=>{});
+  assert.deepEqual(session.metrics.analyzed,[8,9,7]);
+  assert.equal(session.metrics.folioValidationRenders,0);
+  session.close();
+});
+test('constant footer numbers never trigger a false book-wide folio pattern',async()=>{
+  const session=new C.Session(24,async p=>({
+    ...record(),fastPath:true,
+    folio:{ordinal:2026,edge:'bottom',box:[5,205,12,215],body:[35,30,155,190]}
+  }));
+  await session.local(8,0,()=>true,()=>{});
+  assert.equal(session.folioPattern,null);
+  assert.equal(session.folioAttempts.has('8:0'),true);
+  const count=session.metrics.analyzed.length;
+  await session.local(8,0,()=>true,()=>{});
+  assert.equal(session.metrics.analyzed.length,count,'repeated failed folio validation must reuse cache');
+  session.close();
+});
+test('interrupted folio verification defers remaining distant scans and can resume',async()=>{
+  let valid=true;
+  const session=new C.Session(24,async p=>{
+    if(p===5)valid=false;
+    return {...record(),fastPath:true,
+      folio:{ordinal:p+50,edge:'bottom',box:[5,205,12,215],body:[35,30,155,190]}};
+  });
+  await session.local(8,0,()=>valid,()=>{});
+  assert.deepEqual(session.metrics.analyzed,[8,9,7,5]);
+  assert.equal(session.folioPattern,null);
+  valid=true;
+  await session.local(8,0,()=>valid,()=>{});
+  assert.ok(session.folioPattern,'resumed validation confirms consistent folio');
+  assert.ok(!session.metrics.analyzed.includes(6),
+    'resumed validation reuses the fourth cached sample without further rendering');
+  assert.ok(!session.metrics.analyzed.includes(11),'four supporting pages suffice');
+  session.close();
+});
 test('stale queue work is dropped while the in-flight result can be safely cached',async()=>{
   const session=new C.Session(24,async()=>record());
   await session.l1();

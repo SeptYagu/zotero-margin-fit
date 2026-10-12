@@ -147,6 +147,20 @@ async function runTests() {
       'Stopping between pages analyzes/cache-warms without snapping or zooming');
     c.viewer.currentPageNumber=8;
     await c.request('width');
+    const originalX=c.container.scrollLeft;
+    const maxX=Math.max(0,c.container.scrollWidth-c.container.clientWidth);
+    const manualX=Math.min(maxX,originalX+36);
+    check(manualX-originalX>=12,'Test document permits a visible user horizontal pan');
+    c.container.dispatchEvent(new c.win.WheelEvent('wheel',{deltaX:36,bubbles:true}));
+    c.container.scrollLeft=manualX;
+    await until(()=>c.userHeldPage===8,'same-page user position hold registered');
+    const holdWrites=c.metrics.writes.length;
+    await sleep(850);
+    check(Math.abs(c.container.scrollLeft-manualX)<1 && c.metrics.writes.length===holdWrites,
+      'Same-page horizontal pan stays where the reader moved it after idle');
+    await c.request('width');
+    check(c.userHeldPage===null && Math.abs(c.container.scrollLeft-manualX)>12,
+      'Explicit Fit Width intentionally overrides the user position hold');
     const baseline=c.metrics.writes.length;
     for(let n=0;n<10;n++) {
       c.container.dispatchEvent(new c.win.WheelEvent('wheel',{deltaY:50,bubbles:true}));
@@ -154,7 +168,9 @@ async function runTests() {
       await sleep(90);
       check(c.metrics.writes.length===baseline,'Continuous scroll '+n+' causes no plugin zoom/position writes');
     }
-    await until(()=>c.metrics.writes.length>baseline,'idle refinement after scrolling');
+    await until(()=>c.prefetchedEpoch===c.epoch,'idle page analysis after scrolling');
+    check(c.metrics.writes.length===baseline,
+      'Stopping after user-directed movement on a page does not recenter the view');
     const once=c.metrics.writes.length;
     await sleep(1000);
     check(c.metrics.writes.length===once,'Plugin own scroll events do not create a fitting loop');

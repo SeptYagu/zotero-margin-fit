@@ -25,6 +25,9 @@ var MarginFitRuntime = (() => {
       this.mode = host.mode(); this.anchor = this.viewer.currentScale;
       this.epoch = 0; this.lastInput = host.now(); this.lastPage = this.viewer.currentPageNumber;
       this.closed = false; this.muted = false; this.manual = false;
+      // A user's movement within a page is authoritative until they leave it.
+      // This is independent of manual zoom, which existing code already tracks.
+      this.userHeldPage = null;
       this.appliedEpoch = -1; this.restores = []; this.listeners = [];
       this.prefetchedEpoch = -1; this.refiningEpoch = null;
       this.inputFlushTimer = null;
@@ -41,14 +44,14 @@ var MarginFitRuntime = (() => {
       }));
       this.restores.push(C.hook(view, "_onChangeViewStats", data => stats.call(view,
         host.enabled() ? into(this.win,{ ...data, canZoomReset: true }) : data)));
-      this.listen(this.container, "scroll", () => { if (!this.muted) this.input(); });
-      this.listen(this.container, "wheel", () => this.input(), { passive: true });
-      this.listen(this.container, "touchmove", () => this.input(), { passive: true });
+      this.listen(this.container, "scroll", () => { if (!this.muted) this.input(true); });
+      this.listen(this.container, "wheel", () => this.input(true), { passive: true });
+      this.listen(this.container, "touchmove", () => this.input(true), { passive: true });
       this.listen(this.win, "pointerdown", () => { this.dragging = true; this.input(); }, true);
       this.listen(this.win, "pointerup", () => { this.dragging = false; this.arm(); }, true);
       this.listen(this.win, "pointercancel", () => { this.dragging = false; this.arm(); }, true);
       this.listen(this.win, "keydown", event => {
-        if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) this.input();
+        if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) this.input(true);
       }, true);
       this.bus("scalechanging", () => {
         if (this.muted) return;
@@ -96,8 +99,11 @@ var MarginFitRuntime = (() => {
       }
       return C.primaryPage(visible, this.lastPage, this.viewer.currentPageNumber);
     }
-    input() {
+    input(userMovement = false) {
       if (this.closed) return;
+      // Do not infer a user override from pagechanging/resize/rotation events.
+      // Genuine scroll, wheel, touch or navigation-key activity claims this page.
+      if (userMovement && this.host.enabled()) this.userHeldPage = this.lastPage;
       this.muted = false;
       this.epoch++; this.lastInput = this.host.now();
       this.cancelTimer();
@@ -124,7 +130,10 @@ var MarginFitRuntime = (() => {
         }
         this.inputFlushTimer = null;
         const p = this.page();
-        if (p !== this.lastPage) this.manual = false;
+        if (p !== this.lastPage) {
+          this.manual = false;
+          this.userHeldPage = null;
+        }
         this.lastPage = p;
         this.arm();
       };
@@ -182,6 +191,8 @@ var MarginFitRuntime = (() => {
     }
     async request(mode) {
       this.mode = mode; this.host.setMode(mode);
+      // Explicit commands intentionally override the user's held position.
+      this.userHeldPage = null;
       this.manual = false; this.epoch++; this.cancelTimer();
       this.anchor = this.viewer.currentScale;
       const token = this.epoch, p = this.page();
@@ -217,7 +228,8 @@ var MarginFitRuntime = (() => {
         this.document === this.app.pdfDocument &&
         (explicit || (!this.dragging && !this.manual &&
           (initial || this.host.now()-this.lastInput >= C.IDLE_MS)));
-      if (!valid() || (!explicit && !initial && !this.stable(token,p))) return;
+      if (!valid() || (!explicit && this.userHeldPage === p) ||
+          (!explicit && !initial && !this.stable(token,p))) return;
       // PDF.js currentScale excludes its 96/72 CSS conversion; viewport.scale includes it.
       const unitScale = this.viewer.getPageView(p-1).viewport.scale / this.viewer.currentScale;
       const fitting = C.fitPageRecord(record, this.session.folioPattern, p);
@@ -241,8 +253,9 @@ var MarginFitRuntime = (() => {
           scaled = true;
           this.metrics.writes.push({ type: "scale", page: p, value: this.anchor, explicit, time: this.host.now() });
         }
-        // Native zoom synchronously updates page viewports; allow layout one frame to catch up.
-        await new Promise(resolve => this.host.setTimeout(resolve, 0));
+        // A layout turn is needed only after a real scale change. When only
+        // checking the next nearly-identical page, stay entirely synchronous.
+        if (scaled) await new Promise(resolve => this.host.setTimeout(resolve, 0));
         if (!valid()) return;
         const page = this.viewer.getPageView(p-1);
         const r = page.div.getBoundingClientRect();
@@ -251,7 +264,16 @@ var MarginFitRuntime = (() => {
         const left = this.container.scrollLeft + r.left-root.left;
         const top = this.container.scrollTop + r.top-root.top;
         const x = left + (box[0]+box[2])*scale/2 - this.container.clientWidth/2;
-        this.container.scrollLeft = Math.max(0,x);
+        const targetX = Math.max(0,Math.min(x,
+          Math.max(0,this.container.scrollWidth-this.container.clientWidth)));
+        // Adjacent page layouts often differ by only a few pixels. Do not
+        // chase that precision: it produces visible jitter and forced layout.
+        const deadband = explicit ? 0.5 : 4; // CSS pixels, not PDF coordinates
+        let horizontalWritten = false, verticalWritten = false;
+        if (Math.abs(targetX-this.container.scrollLeft) >= deadband) {
+          this.container.scrollLeft = targetX;
+          horizontalWritten = true;
+        }
         // Capture actual, not assumed, visible margins. Browser scroll clamping,
         // intrinsic PDF.js page centering and scrollbar changes can make them unequal.
         const afterHorizontal = page.div.getBoundingClientRect();
@@ -274,19 +296,30 @@ var MarginFitRuntime = (() => {
             ? top + (box[1]+box[3])*scale/2 - this.container.clientHeight/2
             : top + box[1]*scale - 8)
             : top + anchorY*scale - (centerY-root.top);
-          this.container.scrollTop = Math.max(0,y);
+          const targetY = Math.max(0,y);
+          if (Math.abs(targetY-this.container.scrollTop) >= deadband) {
+            this.container.scrollTop = targetY;
+            verticalWritten = true;
+          }
         }
         this.lastPage = p;
-        this.metrics.writes.push({ type: "position", page: p, x: this.container.scrollLeft,
-          y: this.container.scrollTop, verticalWritten: explicit || scaled, explicit, time: this.host.now() });
+        if (horizontalWritten || verticalWritten) {
+          this.metrics.writes.push({type:"position",page:p,
+            x:this.container.scrollLeft,y:this.container.scrollTop,
+            horizontalWritten,verticalWritten,explicit,time:this.host.now()});
+        } else {
+          this.metrics.skippedPositionWrites = (this.metrics.skippedPositionWrites || 0)+1;
+        }
         this.host.status(this.view, null);
-        // Scroll events from our own writes arrive in the next animation frame.
-        await new Promise(resolve => this.host.setTimeout(resolve, 50));
+        // Mute only actual self-originated scroll events; no timer on a no-op.
+        if (horizontalWritten || verticalWritten)
+          await new Promise(resolve => this.host.setTimeout(resolve, 50));
       } finally { if (token === this.epoch) this.muted = false; }
     }
     toggle() {
       if (this.closed) return;
       this.epoch++; this.cancelTimer(); this.manual = false; this.muted = false;
+      this.userHeldPage = null;
       this.host.clearTimeout(this.inputFlushTimer); this.inputFlushTimer = null;
       this.session.setEnabled(this.host.enabled());
       this.anchor = this.viewer.currentScale;

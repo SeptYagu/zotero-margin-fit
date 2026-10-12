@@ -5,7 +5,7 @@ const {Controller}=require('../src/runtime.js');
 function setup(count=1) {
   const listeners=new Map();
   const emitter={addEventListener(type,fn){listeners.set(type,fn);},removeEventListener(type){listeners.delete(type);}};
-  const container={...emitter,clientWidth:640,clientHeight:800,scrollLeft:0,scrollTop:0,
+  const container={...emitter,clientWidth:640,clientHeight:800,scrollWidth:2000,scrollHeight:3000,scrollLeft:0,scrollTop:0,
     getBoundingClientRect:()=>({left:0,right:640,top:0,bottom:800})};
   const vp={scale:4/3,rotation:0,width:800,height:1066.67,clone:()=>({...vp,scale:1,width:600,height:800})};
   const page={viewport:vp,div:{getBoundingClientRect:()=>({left:-container.scrollLeft,right:600*vp.scale-container.scrollLeft,
@@ -187,5 +187,67 @@ test('horizontal fit diagnostics retain actual left/right space and scroll clamp
   assert.ok(Math.abs(g.delta-(g.leftMargin-g.rightMargin))<1e-7);
   assert.equal(g.fittingSource,'full');
   assert.ok(g.actualScrollLeft>=0);
+  f.controller.close();
+});
+
+test('user pan on a page suppresses automatic recenter, explicit fit can override',async()=>{
+  const f=setup();f.enable();
+  await f.controller.apply(f.record,1,0,true);
+  const x=f.viewer.container.scrollLeft+36;
+  const y=f.viewer.container.scrollTop+19;
+  f.viewer.container.scrollLeft=x;f.viewer.container.scrollTop=y;
+  f.controller.input(true);f.advance(600);
+  const writes=f.controller.metrics.writes.length;
+  await f.controller.apply(f.record,1,f.controller.epoch);
+  assert.equal(f.controller.userHeldPage,1);
+  assert.equal(f.viewer.container.scrollLeft,x);
+  assert.equal(f.viewer.container.scrollTop,y);
+  assert.equal(f.controller.metrics.writes.length,writes);
+  await f.controller.request('width');
+  assert.equal(f.controller.userHeldPage,null,'manual fit explicitly releases position hold');
+  assert.ok(Math.abs(f.viewer.container.scrollLeft-x)>10,'explicit button recenters');
+  f.controller.close();
+});
+test('leaving a held page enables automatic fitting on the next page',async()=>{
+  const f=setup(3);f.enable();
+  await f.controller.apply(f.record,1,0,true);
+  const old=f.viewer.container.scrollLeft;
+  f.viewer.container.scrollLeft=old+36;
+  f.controller.input(true);f.advance(600);
+  const before=f.controller.metrics.writes.length;
+  await f.controller.apply(f.record,1,f.controller.epoch);
+  assert.equal(f.controller.metrics.writes.length,before);
+  f.viewer.currentPageNumber=2;
+  f.viewer._getVisiblePages=()=>({views:[{id:2,view:f.viewer.getPageView(1)}]});
+  f.controller.input(false);
+  // Two close input epochs coalesce into a trailing 75ms+75ms flush.
+  await new Promise(r=>setTimeout(r,215));
+  assert.equal(f.controller.lastPage,2);
+  assert.equal(f.controller.userHeldPage,null);
+  f.advance(600);
+  await f.controller.apply(f.record,2,f.controller.epoch);
+  assert.ok(Math.abs(f.viewer.container.scrollLeft-old)<5,'automatic centering resumes after page turn');
+  f.controller.close();
+});
+test('tiny per-page center changes do not write scrollLeft or schedule settling delay',async()=>{
+  const f=setup(3);f.enable();
+  await f.controller.apply(f.record,1,0,true);
+  const container=f.viewer.container;
+  let x=container.scrollLeft,assignments=0;
+  Object.defineProperty(container,'scrollLeft',{get(){return x;},set(v){x=v;assignments++;},configurable:true});
+  x+=2.5; // simulate very slightly different adjacent-page content margins
+  f.viewer.currentPageNumber=2;
+  f.viewer._getVisiblePages=()=>({views:[{id:2,view:f.viewer.getPageView(1)}]});
+  f.controller.input(false);
+  await new Promise(r=>setTimeout(r,115));
+  f.advance(600);
+  const old=f.controller.metrics.writes.length;
+  const skipped=f.controller.metrics.skippedPositionWrites||0;
+  const started=Date.now();
+  await f.controller.apply(f.record,2,f.controller.epoch);
+  assert.equal(assignments,0,'no scrollLeft assignment within 4px automatic deadband');
+  assert.equal(f.controller.metrics.writes.length,old,'no synthetic position write record');
+  assert.ok(f.controller.metrics.skippedPositionWrites>skipped);
+  assert.ok(Date.now()-started<45,'no unconditional 50ms scroll-settling timer');
   f.controller.close();
 });

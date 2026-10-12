@@ -120,10 +120,10 @@ test('switching detection off finishes only the in-flight L1 page and resumes fr
   f.session.detect=async p=>{started.push(p);if(started.length===1)await new Promise(r=>release=r);return f.record;};
   f.enable();const pending=f.controller.begin();
   await new Promise(r=>setTimeout(r,0));f.enable(false);f.controller.toggle();release();await pending;
-  assert.deepEqual(started,[5]);assert.equal(f.session.models,null);
-  assert.equal(f.session.cache.has(5),true);
+  assert.deepEqual(started,[1]);assert.equal(f.session.models,null);
+  assert.equal(f.session.cache.has(1),true);
   f.enable();f.session.setEnabled(true);await f.session.l1();
-  assert.deepEqual(started,[5,6,11,12,17,18]);f.controller.close();
+  assert.deepEqual(started,[1,5,6,11,12,17,18]);f.controller.close();
 });
 
 test('scroll bursts coalesce expensive visible-page geometry reads',async()=>{

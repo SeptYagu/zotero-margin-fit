@@ -152,17 +152,15 @@ var MarginFitRuntime = (() => {
     }
     async begin() {
       if (this.closed || !this.host.enabled()) return;
-      const token = this.epoch;
+      const token = this.epoch, p = this.page();
       try {
-        const modelsReady = await this.session.l1();
-        if (!modelsReady) { this.arm(); return; }
-        if (!this.closed && this.host.enabled() && token === this.epoch && !this.dragging && !this.manual) {
-          const p = this.page();
-          const vp = unwrap(this.viewer.getPageView(p-1).viewport.clone(into(this.win,{ scale: 1 })));
-          const cached = this.session.cache.get(p);
-          const models = this.session.modelRotation === (this.viewer.pagesRotation || 0)
-            ? this.session.models : { 0: [0,0,1,1], 1: [0,0,1,1] };
-          const r = cached?.rotation === vp.rotation ? cached : C.prediction(models, p, vp.width, vp.height, vp.rotation);
+        const rotation = this.viewer.getPageView(p-1).viewport.rotation;
+        // First visible fit uses its exact page bounds; distant L1 samples must
+        // not delay it or cause an early prediction followed by a zoom jump.
+        const r = await this.session.visible(p, rotation,
+          () => !this.closed && this.host.enabled() && this.document === this.app.pdfDocument);
+        if (r && !this.closed && this.host.enabled() && token === this.epoch &&
+            !this.dragging && !this.manual && this.page() === p) {
           if (r.quality === "fallback") this.fallback(r.reason);
           else await this.apply(r, p, token, false, true);
         }
@@ -196,16 +194,13 @@ var MarginFitRuntime = (() => {
       this.manual = false; this.epoch++; this.cancelTimer();
       this.anchor = this.viewer.currentScale;
       const token = this.epoch, p = this.page();
-      // Explicit Fit commands bypass the background scrolling cooldown;
-      // the L1-before-L2 ordering still applies.
+      // Explicit Fit has foreground priority, never waiting for the distant
+      // L1 sample sequence or the background idle cooldown.
       this.session.allowExplicitRequest?.();
       try {
-        if (!await this.session.l1()) { this.arm(); return; }
         const rotation = this.viewer.getPageView(p-1).viewport.rotation;
-        const record = await this.session.serial(() => {
-          if (this.closed || !this.host.enabled() || token !== this.epoch) return null;
-          return this.session.read(p, rotation);
-        });
+        const record = await this.session.visible(p, rotation,
+          () => !this.closed && this.host.enabled() && token === this.epoch);
         if (!record || this.closed || token !== this.epoch || !this.host.enabled()) return;
         if (record.quality !== "reliable") this.fallback(record.reason);
         else await this.apply(record, p, token, true);

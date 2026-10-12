@@ -56,8 +56,10 @@ async function runTests() {
       return ((root.top+root.bottom)/2-page.div.getBoundingClientRect().top)/page.viewport.scale;
     };
     const restoredY=readingCoordinate(c);
-    await until(()=>c.session.models && c.metrics.writes.some(w=>w.type==='position'),'automatic fitting');
+    await until(()=>c.metrics.writes.some(w=>w.type==='position'),'first visible-page automatic fitting');
     measurements.firstSmartFitFromImportMs=Date.now()-started;
+    check(c.session.metrics.analyzed[0]===8,'Restored visible page 8 is detected before unrelated L1 samples');
+    await until(()=>c.session.models,'lazy representative samples complete');
     measurements.l1DetectionMs=c.session.metrics.l1ElapsedMs;
     check(doc.querySelectorAll('[data-marginfit]').length===2,'Exactly two new controls; native Reset Zoom retained');
     const heightButton=doc.querySelector('[data-marginfit="height"]'),detectButton=doc.querySelector('[data-marginfit="detect"]');
@@ -75,7 +77,7 @@ async function runTests() {
     check(doc.getElementById('zoomAuto'),'Original Reset Zoom exists');
     await until(()=>!doc.getElementById('zoomAuto').disabled,'native Reset Zoom enabled');
     check(true,'React enables native Reset Zoom through instance stats callback');
-    check(JSON.stringify(c.session.metrics.analyzed.slice(0,6))===JSON.stringify([5,6,11,12,17,18]),'L1 six samples run first without inserting restored current page');
+    check(JSON.stringify(c.session.metrics.analyzed.slice(1,7))===JSON.stringify([5,6,11,12,17,18]),'L1 representative samples run after the actual restored page');
     check(c.metrics.writes[0].page===8,'First fit targets restored page 8');
     await until(()=>c.session.cache.has(8) && c.appliedEpoch>=0,'L2 current page refined');
     await until(()=>c.prefetchedEpoch===c.epoch,'initial L2 prefetch');
@@ -287,12 +289,13 @@ async function runTests() {
     const pausedDoc=paused.reader._iframeWindow.document;
     const analyzedBeforeOFF=paused.c.session.metrics.analyzed.length;
     const activeBeforeOFF=paused.c.session.metrics.active;
-    check(analyzedBeforeOFF<6,'OFF-during-L1 regression starts while sampling is incomplete');
+    const writesBeforeOFF=paused.c.metrics.writes.length;
+    check(analyzedBeforeOFF<6,'OFF-during-lazy-L1 regression starts before background sampling finishes');
     pausedDoc.querySelector('[data-marginfit="detect"]').click();
     await paused.c.session.tail;
     check(!paused.c.session.models && paused.c.session.metrics.analyzed.length<=analyzedBeforeOFF+activeBeforeOFF,
-      'Switch OFF lets only the in-flight sample finish and starts no remaining L1 pages');
-    check(paused.c.metrics.writes.length===0,'Switch OFF during L1 never applies a late initial fit');
+      'Switch OFF lets only an in-flight sample finish and starts no more L1 pages');
+    check(paused.c.metrics.writes.length===writesBeforeOFF,'Switch OFF prevents late fit writes after deactivation');
     pausedDoc.querySelector('[data-marginfit="detect"]').click();
     await until(()=>paused.c.session.models && paused.c.session.cache.has(13),'resume paused L1 and L2');
     check([5,6,11,12,17,18].every(p=>paused.c.session.metrics.analyzed.filter(n=>n===p).length===1),

@@ -63,19 +63,40 @@ test('raster detector keeps a single thin page-number pixel and fails safe on da
   data.fill(255);
   assert.equal(C.inkBox({data,width:10,height:10}).reason,'blank');
 });
-test('serial queue enforces full L1 before any current-page detection and uses cache',async()=>{
+test('visible page precedes lazy L1 and serial detection reuses the cached result',async()=>{
   const analyzed=[]; let active=0,peak=0;
   const session=new C.Session(24,async p=>{
     active++; peak=Math.max(peak,active); analyzed.push(p);
     await new Promise(r=>setTimeout(r,1)); active--; return record();
   });
-  const local=session.local(8,0,()=>true,()=>{});
-  await Promise.all([local,session.l1()]);
+  const visible=session.visible(8,0);
+  const background=session.l1();
+  await Promise.all([visible,background]);
+  await session.local(8,0,()=>true,()=>{});
   assert.equal(peak,1);
-  assert.deepEqual(analyzed,[5,6,11,12,17,18,8,9,10,7]);
+  assert.deepEqual(analyzed,[8,5,6,11,12,17,18,9,10,7]);
   assert.equal(session.cache.size,10);
   await session.local(8,0,()=>true,()=>{});
   assert.equal(analyzed.length,10);
+});
+test('foreground Fit overtakes remaining L1 pages without parallel rendering',async()=>{
+  let release,signal;
+  const entered=new Promise(r=>signal=r);
+  const analyzed=[];
+  const session=new C.Session(24,async p=>{
+    analyzed.push(p);
+    if(p===5 && !release) await new Promise(r=>{release=r;signal();});
+    return record();
+  });
+  const background=session.l1();
+  await entered;
+  const foreground=session.visible(8,0);
+  release();
+  await foreground;
+  assert.deepEqual(analyzed.slice(0,2),[5,8]);
+  await background;
+  assert.equal(session.metrics.peakConcurrent,1);
+  session.close();
 });
 test('stale queue work is dropped while the in-flight result can be safely cached',async()=>{
   const session=new C.Session(24,async()=>record());

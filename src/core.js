@@ -432,13 +432,18 @@ var MarginFitCore = (() => {
     }
     l1() {
       if (this.closed || this.paused) return Promise.resolve(null);
-      if (!this.l1Promise) this.l1Promise = this.serial(async () => {
+      if (!this.l1Promise) this.l1Promise = (async () => {
         await this.ready;
         const started = Date.now();
         const pages = samples(this.count);
+        // L1 is background work. Queue each sample individually, so an explicit
+        // Fit or newly visible page can run after at most one in-flight render.
         for (const p of pages) {
-          if (!await this.waitForQuiet()) return null;
-          await this.read(p);
+          const completed = await this.serial(async () => {
+            if (!await this.waitForQuiet() || this.closed || this.paused) return false;
+            return !!await this.read(p);
+          });
+          if (!completed) return null;
         }
         if (!this.closed && !this.paused) {
           this.models = parityModels(this.cache, pages);
@@ -448,21 +453,33 @@ var MarginFitCore = (() => {
           this.metrics.l1ElapsedMs = Date.now() - started;
         }
         return this.closed || this.paused ? null : this.models;
-      }).then(models => {
+      })().then(models => {
         // Keep completed samples when paused; a later ON resumes the incomplete model.
         if (!models) this.l1Promise = null;
         return models;
       }, error => { this.l1Promise = null; throw error; });
       return this.l1Promise;
     }
+    // The actual page is never blocked by L1 model building. Both startup and
+    // explicit Fit share this serialized foreground path (one detector worker).
+    visible(p, rotation, valid = () => true) {
+      return this.serial(() => valid() ? this.read(p, rotation) : null);
+    }
     async local(p, rotation, valid, onCurrent) {
-      if (!await this.l1()) return;
-      for (const n of neighbors(p, this.count)) {
+      if (this.closed || this.paused || !valid()) return;
+      // Render the current page before any representative or neighbor pages.
+      await this.serial(async () => {
+        if (!await this.waitForQuiet() || !valid()) return;
+        const value = await this.read(p, rotation);
+        if (value && !this.closed && !this.paused && valid()) await onCurrent(value);
+      });
+      if (this.closed || this.paused || !valid() || !await this.l1()) return;
+      // Background neighboring pages remain an opportunistic idle-only task.
+      for (const n of neighbors(p, this.count).slice(1)) {
         if (this.closed || this.paused || !valid()) break;
         await this.serial(async () => {
           if (!await this.waitForQuiet() || !valid()) return;
-          const value = await this.read(n, rotation);
-          if (value && n === p && !this.closed && !this.paused && valid()) await onCurrent(value);
+          await this.read(n, rotation);
         });
       }
     }

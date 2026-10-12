@@ -177,8 +177,15 @@ var MarginFitRuntime = (() => {
       this.lastPage = p;
       const rotation = this.viewer.getPageView(p-1).viewport.rotation;
       try {
-        await this.session.local(p, rotation, () => this.stable(token, p), async record => {
-          if (!this.stable(token,p) || this.appliedEpoch === token) return;
+        await this.session.local(p, rotation, () => this.stable(token, p), async (record, afterL1 = false) => {
+          if (!this.stable(token,p)) return;
+          if (afterL1) {
+            // After the background model is ready, only a newly verified folio
+            // exclusion may justify one further automatic Width Fit. This still
+            // respects the existing zoom dead zone and manual page-position hold.
+            if (this.mode !== "width" || !C.fitPageRecord(record,this.session.folioPattern,p).folioExcluded)
+              return;
+          } else if (this.appliedEpoch === token) return;
           this.appliedEpoch = token;
           if (record.quality !== "reliable") { this.fallback(record.reason); return; }
           await this.apply(record, p, token);
@@ -344,11 +351,11 @@ var MarginFitRuntime = (() => {
       const suspectText = C.textNeedsInkCalibration(text,viewport.width);
       // A strict PDF.js operator allowlist forbids graphics, scans and unknown paint ops.
       // Only then can the cheap text geometry replace offscreen rasterization.
-      if (text) {
+      if (text && !suspectText) {
         try {
           const ops = unwrap(win.pdfjsLib)?.OPS || unwrap(app.pdfjsLib)?.OPS;
           const instructions = unwrap(await page.getOperatorList());
-          if (!suspectText && C.isTextOnlyOps(instructions,ops,text)) {
+          if (C.isTextOnlyOps(instructions,ops,text)) {
             // Annotation appearances may extend beyond text; a non-empty list is unsafe
             // for a text-only crop, even when the underlying page operations are text.
             const annotations=unwrap(await page.getAnnotations(into(win,{intent:'display'})));
@@ -360,7 +367,10 @@ var MarginFitRuntime = (() => {
           }
         } catch (_) { /* No reliable operator list: use the existing raster detector. */ }
       }
-      const factor = Math.min(1, 800 / Math.max(viewport.width,viewport.height));
+      // This is strictly the offscreen detector canvas, not the reader display.
+      // A/B probes found 560px retains the observed ordinary content bounds
+      // with much less pixel work than the previous 800px long edge.
+      const factor = Math.min(1, 560 / Math.max(viewport.width,viewport.height));
       const low = unwrap(viewport.clone(into(win,{ scale: factor })));
       canvas = win.document.createElement("canvas");
       canvas.width = Math.ceil(low.width); canvas.height = Math.ceil(low.height);

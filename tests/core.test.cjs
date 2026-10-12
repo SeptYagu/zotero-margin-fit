@@ -98,6 +98,18 @@ test('foreground Fit overtakes remaining L1 pages without parallel rendering',as
   assert.equal(session.metrics.peakConcurrent,1);
   session.close();
 });
+test('folio model can refine the visible width once after lazy representative samples',async()=>{
+  const session=new C.Session(24,async p=>({
+    ...record([16,30,185,205]),fastPath:true,
+    folio:{ordinal:p+50,edge:'bottom',box:[5,205,12,215],body:[35,30,155,190]}
+  }));
+  const callbacks=[];
+  await session.local(8,0,()=>true,(r,afterL1=false)=>{
+    callbacks.push({afterL1,matched:!!C.fitPageRecord(r,session.folioPattern,8).folioExcluded});
+  });
+  assert.deepEqual(callbacks,[{afterL1:false,matched:false},{afterL1:true,matched:true}]);
+  session.close();
+});
 test('stale queue work is dropped while the in-flight result can be safely cached',async()=>{
   const session=new C.Session(24,async()=>record());
   await session.l1();

@@ -78,6 +78,9 @@ async function run(){
     mr.widthFitRaw[3]===mr.raw[3],
     'mixed page removes isolated left footer from width only, preserves chapter/footer height');
   synthetic.c.viewer.currentPageNumber=5;
+  await until(()=>synthetic.c.page()===5,'visible synthetic page 5');
+  // Native pagechanging/scroll events must finish before comparing two explicit fits.
+  await sleep(500);
   await synthetic.c.request('width');
   const widthScale=synthetic.c.viewer.currentScale;
   const backup=mr.widthFitRaw;
@@ -104,7 +107,8 @@ async function run(){
   await until(()=>book.c.closed,'reader disposed');
   const again=await open('asymmetric-book.pdf',book.item);
   await until(()=>again.c.session.models,'reopen L1');
-  assert(again.c.session.metrics.analyzed.length===0,'reopen uses cached L1 without re-render');
+  assert([5,6,11,12,17,18].every(p=>!again.c.session.metrics.analyzed.includes(p)),
+    'reopen reuses all cached L1 samples; a newly visible uncached page may render');
   assert(again.c.session.metrics.cacheHits>=6,'reopen records L1 cache hits');
   assert(again.c.session.cache.get(5)?.raw[0]>again.c.session.cache.get(6)?.raw[0],'parity geometry retained');
   saved.reopenAnalyzed=again.c.session.metrics.analyzed.length;

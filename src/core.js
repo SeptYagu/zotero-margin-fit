@@ -474,6 +474,11 @@ var MarginFitCore = (() => {
         if (value && !this.closed && !this.paused && valid()) await onCurrent(value);
       });
       if (this.closed || this.paused || !valid() || !await this.l1()) return;
+      // A newly confirmed numbered-folio pattern may improve the current page's
+      // width; notify once, without rerendering or disturbing other documents.
+      const current = this.cache.get(p);
+      if (this.folioPattern && current?.fastPath && current?.folio && valid())
+        await onCurrent(current, true);
       // Background neighboring pages remain an opportunistic idle-only task.
       for (const n of neighbors(p, this.count).slice(1)) {
         if (this.closed || this.paused || !valid()) break;

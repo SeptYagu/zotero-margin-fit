@@ -535,7 +535,7 @@ var MarginFitRuntime = (() => {
       const body = estimated ? C.sparseBodyWidth(ink,pixels.width,pixels.height) : null;
       const raster = ink.box?.map(n => n/factor);
       const merged = C.reconcileTextInk(text,raster,viewport.width,
-        suspectText && estimated,support);
+        suspectText && estimated,support,!!ink.rimSuppressed,viewport.height);
       const quality = ink.quality === "estimated" ? "reliable" : ink.quality;
       const raw = quality === "reliable" && merged
         ? [C.clamp(merged[0],0,viewport.width),C.clamp(merged[1],0,viewport.height),
@@ -627,8 +627,10 @@ var MarginFitRuntime = (() => {
         if (reader._iframeWindow?.document) {
           const doc = reader._iframeWindow.document;
           const bar = this.toolbars.get(reader);
-          if (bar?.isConnected && bar.ownerDocument === doc) this.positionToolbar(doc, bar);
-          else this.toolbar({ reader, doc });
+          if (bar?.isConnected && bar.ownerDocument === doc) {
+            this.positionToolbar(doc, bar);
+            this.removeDuplicateToolbars(doc,bar);
+          } else this.toolbar({ reader, doc });
         }
         } catch (_) { /* A detached window can be destroyed between discovery ticks. */ }
       }
@@ -704,6 +706,13 @@ var MarginFitRuntime = (() => {
         ` / 识别边界：${state[1]}${fallback ? " — 无法可靠识别，保留当前视图" : ""}` +
         (fallback && detail ? ` (${detail[0]} / ${detail[1]})` : "");
     }
+    removeDuplicateToolbars(doc,keep) {
+      // A Zotero reader may re-render its toolbar while an older controller is
+      // still being disposed. The Map alone cannot identify orphaned DOM bars.
+      // Keep exactly one plugin toolbar in each document, not one per callback.
+      for (const bar of doc.querySelectorAll(".marginfit-toolbar"))
+        if (bar !== keep) bar.remove();
+    }
     positionToolbar(doc,bar,append) {
       // Zotero's renderToolbar append callback targets the right-hand section.
       // Keep our controls immediately after native Reset Zoom in the left section,
@@ -723,7 +732,9 @@ var MarginFitRuntime = (() => {
       const old = this.toolbars.get(reader);
       try {
         if (old?.isConnected && old.ownerDocument === doc) {
-          this.positionToolbar(doc,old,append); this.updateButtons(); return;
+          this.positionToolbar(doc,old,append);
+          this.removeDuplicateToolbars(doc,old);
+          this.updateButtons(); return;
         }
         old?.remove();
       } catch (_) { /* previous iframe is dead */ }
@@ -750,6 +761,7 @@ var MarginFitRuntime = (() => {
       toggle.addEventListener("click", () => this.Services.prefs.setBoolPref(PREF,!this.enabled()));
       bar.append(style,height,toggle);
       if (!this.positionToolbar(doc,bar,append)) return;
+      this.removeDuplicateToolbars(doc,bar);
       this.toolbars.set(reader,bar);
       this.updateButtons(); this.discoverViews(reader);
     }

@@ -1,4 +1,5 @@
 param([string]$ZoteroPath = 'C:\Program Files\Zotero\zotero.exe', [string]$DriverScript = 'integration-bootstrap.js', [switch]$Windowed,
+  [string]$SourcePDF = '',
   [string]$BenchmarkXPI = '', [string]$BenchmarkManifest = '', [string]$BenchmarkLabel = '')
 $ErrorActionPreference = 'Stop'
 $projectPath = Split-Path $PSScriptRoot -Parent
@@ -42,6 +43,7 @@ $prefs = [ordered]@{
     'marginfit.integrationXPI' = $xpiPath
     'marginfit.integrationExpectedVersion' = $expectedVersion
     'marginfit.integrationFixtures' = $fixtures
+    'marginfit.integrationSourcePDF' = $SourcePDF
     'marginfit.benchmarkManifest' = $BenchmarkManifest
     'marginfit.benchmarkLabel' = $BenchmarkLabel
     'devtools.debugger.remote-enabled' = $true

@@ -140,12 +140,24 @@ var MarginFitCore = (() => {
   }
   // For only the supported side, let visible ink override grossly inflated
   // text advances. Ordinary text and unsupported anomalies keep the union.
-  function reconcileTextInk(text,raster,width,calibrate=false,support=null) {
+  function reconcileTextInk(text,raster,width,calibrate=false,support=null,artifactSuppressed=false,height=null) {
     const result=union(text,raster);
-    if (!result || !text || !raster || !calibrate || !support) return result;
+    if (!result || !text || !raster) return result;
     const mismatch=Math.max(SAFETY,width*.035);
-    if (support.right && text[2]-raster[2]>mismatch) result[2]=raster[2];
-    if (support.left && raster[0]-text[0]>mismatch) result[0]=raster[0];
+    if (calibrate && support) {
+      if (support.right && text[2]-raster[2]>mismatch) result[2]=raster[2];
+      if (support.left && raster[0]-text[0]>mismatch) result[0]=raster[0];
+    }
+    // OCR text coordinates in scanned pages are not painted glyph evidence.
+    // Once the independent sparse sample confidently rejects scan-bed streaks,
+    // do not let a gross OCR overhang reintroduce those same fake borders.
+    if (artifactSuppressed) {
+      if (raster[0]-text[0]>mismatch) result[0]=raster[0];
+      if (text[2]-raster[2]>mismatch) result[2]=raster[2];
+      const vertical=Math.max(SAFETY,(height||width)*.035);
+      if (raster[1]-text[1]>vertical) result[1]=raster[1];
+      if (text[3]-raster[3]>vertical) result[3]=raster[3];
+    }
     return result;
   }
   // Identify a folio candidate during the existing text-bbox traversal.
@@ -274,12 +286,16 @@ var MarginFitCore = (() => {
         !Number.isSafeInteger(width) || !Number.isSafeInteger(height) ||
         width < 1 || height < 1 || !data || data.length < width*height*4)
       return {box:null,quality:"fallback",reason:"invalid-input"};
-    const corners=[0,(width-1)*4,(height-1)*width*4,(height*width-1)*4];
-    if (corners.some(i => Math.min(data[i],data[i+1],data[i+2]) < 240))
-      return {box:null,quality:"fallback",reason:"background"};
+    // A dark corner is not proof of a dark page: scans frequently have
+    // black wedges, dirty page edges or an exposed scanner bed. Full-page
+    // darkness is rejected by occupancy after the sparse pass instead.
+    const stripX=Math.max(1,Math.floor(width*.035));
+    const stripY=Math.max(1,Math.floor(height*.035));
+    let innerLeft=width,innerTop=height,innerRight=-1,innerBottom=-1,innerHits=0;
     const leftByRow=new Int32Array(height);
     const rightByRow=new Int32Array(height);
     const inkByRow=new Uint32Array(height);
+    const inkByCol=new Uint32Array(width);
     leftByRow.fill(width); rightByRow.fill(-1);
     let left=width,top=height,right=-1,bottom=-1,hits=0,visited=0;
     for(let y=0;y<height;y++) {
@@ -288,7 +304,14 @@ var MarginFitCore = (() => {
         visited++;
         const i=(y*width+x)*4;
         if(data[i+3]<=32 || Math.min(data[i],data[i+1],data[i+2])>=235)continue;
-        hits++;inkByRow[y]++;
+        hits++;inkByRow[y]++;inkByCol[x]++;
+        if (x>=stripX && x<width-stripX && y>=stripY && y<height-stripY) {
+          innerHits++;
+          if(x<innerLeft)innerLeft=x;
+          if(x>innerRight)innerRight=x;
+          if(y<innerTop)innerTop=y;
+          if(y>innerBottom)innerBottom=y;
+        }
         if(x<leftByRow[y])leftByRow[y]=x;
         rightByRow[y]=x;
         if(x<left)left=x;
@@ -297,12 +320,53 @@ var MarginFitCore = (() => {
         if(y>bottom)bottom=y;
       }
     }
-    if(right<0)return {box:null,quality:"fallback",reason:"blank-or-missed",visited,hits};
+    if(right<0 || hits<Math.max(8,Math.ceil(visited*.0002)))
+      return {box:null,quality:"fallback",reason:"blank-or-missed",visited,hits};
     if(hits/visited>0.6)return {box:null,quality:"fallback",reason:"dense-background",visited,hits};
-    return {box:[Math.max(0,left-1),Math.max(0,top-1),
-      Math.min(width,right+2),Math.min(height,bottom+2)],
-      quality:"estimated",visited,hits,stride,phasePeriod,
-      leftByRow,rightByRow,inkByRow};
+    // Never do another raster pass. The same quarter-density samples give
+    // us a second candidate that ignores only the physical 3.5% rim.
+    // Suppress the rim *only* if almost all ink is supported in a substantial
+    // inner content region. Otherwise preserve the full measured boundary,
+    // including full-bleed artwork or uncertain pages.
+    const rimTouched=left<width*.025 || right>width*.975 ||
+      top<height*.025 || bottom>height*.975;
+    const strongInterior=innerRight>innerLeft && innerBottom>innerTop &&
+      innerRight-innerLeft>width*.22 && innerBottom-innerTop>height*.25 &&
+      innerHits>=hits*.85;
+    const rimSuppressed=rimTouched && strongInterior;
+    const box=rimSuppressed
+      ? [Math.max(0,innerLeft-1),Math.max(0,innerTop-1),
+        Math.min(width,innerRight+2),Math.min(height,innerBottom+2)]
+      : [Math.max(0,left-1),Math.max(0,top-1),
+        Math.min(width,right+2),Math.min(height,bottom+2)];
+    // Exposed scanner-edge streaks can fall *inside* the fixed rim.
+    // Distinguish a distant isolated streak from substantive typesetting by
+    // requiring a well-supported central column range, a wide horizontal
+    // separation and no more than 3.5% of sampled ink outside that range.
+    // This reuses the same column counters; no extra pixel scan or render.
+    if (rimSuppressed) {
+      const columnThreshold=Math.max(8,Math.ceil(height*.045));
+      let supportedLeft=width,supportedRight=-1;
+      for (let x=0;x<width;x++) if (inkByCol[x]>=columnThreshold) {
+        supportedLeft=Math.min(supportedLeft,x);supportedRight=x;
+      }
+      if (supportedRight>supportedLeft && supportedRight-supportedLeft>width*.22) {
+        if (supportedLeft-box[0]>width*.075) {
+          let outliers=0;
+          for(let x=0;x<supportedLeft;x++)outliers+=inkByCol[x];
+          if(outliers<=hits*.035)box[0]=Math.max(box[0],supportedLeft-2);
+        }
+        if (box[2]-supportedRight>width*.075) {
+          let outliers=0;
+          for(let x=supportedRight+1;x<width;x++)outliers+=inkByCol[x];
+          if(outliers<=hits*.035)box[2]=Math.min(box[2],supportedRight+3);
+        }
+      }
+    }
+    return {box,quality:"estimated",visited,hits,stride,phasePeriod,
+      rimSuppressed,fullBox:[Math.max(0,left-1),Math.max(0,top-1),
+        Math.min(width,right+2),Math.min(height,bottom+2)],
+      leftByRow,rightByRow,inkByRow,inkByCol};
   }
   // Conservative body-width estimator. The sampled outermost points are not
   // silently discarded: protrusions must live exclusively in the small page

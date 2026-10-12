@@ -28,6 +28,8 @@ async function run(){let measurements={};try{
  ok(detect.getAttribute('aria-pressed')==='true','detect selected when enabled');
  ok(win.getComputedStyle(detect).boxShadow!=='none','detect selected has visible ring');
  height.click();await until(()=>height.getAttribute('aria-pressed')==='true','height mode selected');
+ await until(()=>{const c=plugin.controllers.get(reader._internalReader._primaryView);
+   return c?.appliedEpoch===c?.epoch;},'height fit settled before subsequent toolbar assertions');
  ok(win.getComputedStyle(height).boxShadow!=='none','height selected has visible ring');
  const count=doc.querySelectorAll('.marginfit-toolbar').length;
  plugin.toolbar({reader,doc,append:node=>doc.querySelector('.section')?.append(node)});

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.8 — 2026-10-12
+
+- Native Fit Height PAGE-mode page turning, cached first-frame fitting, controlled touchpad wheel behavior, and restoration of previous continuous scroll mode.
+- Persistent four-coordinate PDF content geometry and cooperative idle indexing with foreground preemption and old-cache migration.
+- Preserve far-away printed page-number Width Fit across reopen without an extra persisted rectangle.
+- Improve difficult scanned book detection (Berger Musica Ficta; nonuniform page sizes, dirty scanner rims, isolated dark streaks and OCR mismatch).
+- Remove duplicate plugin toolbar controls on rediscovery.
+- 90 unit tests; earlier Zotero integration tests plus final offline real-book scan validation. See RELEASE_NOTES.md for remaining harness limitations.
+
+
+
 ## 0.1.5 — 2026-10-09
 
 - P1-A: scalar text bounding boxes with deterministic randomized equivalence checks.

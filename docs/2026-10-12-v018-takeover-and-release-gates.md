@@ -2,7 +2,7 @@
 
 Date: 2026-10-12
 Branch: `feat/v018-content-page-turn`
-Status: development/isolated Zotero validation; NOT published and NOT installed in production Zotero.
+Status at takeover: development/isolated Zotero validation. Later updated for the owner's rapid normal-release policy; no production Zotero installation was performed.
 
 ## Confirmed implementation
 
@@ -24,7 +24,7 @@ Status: development/isolated Zotero validation; NOT published and NOT installed 
 
 ## Verification run
 
-- `npm test`: 86/86 unit tests passed after width-folio persistent-cache checks.
+- `npm test`: initially 86/86; after scanned-edge/toolbar and selective cache migration improvements, 90/90 unit tests passed.
 - `npm run test:height`: passed native Zotero 10.0.6 page-turn geometry, trackpad, restore,
   no delayed second fit, and blank-page fallback.
 - `npm run test:background`: passed idle pre-indexing without visible zoom/pan changes.
@@ -50,7 +50,7 @@ mixed-score reopen checks and pure-text folio checks passed. Do not delete
 an exhaustive full-ink horizontal rectangle; original PDF bytes are untouched,
 and horizontal panning remains possible.
 
-## Release blockers / further acceptance
+## Remaining broader acceptance (not blockers for owner-requested rapid testing releases)
 
 1. **Real-document visual audit**: test v0.1.8 against varied real research PDFs, scans, scores,
    portrait/landscape, rotated and dark pages, before shipping. The v0.1.7 18-PDF benchmark
@@ -59,7 +59,11 @@ and horizontal panning remains possible.
    isolated profiles; exercise long jumps, annotation editing/search, split views and reopen.
 3. **Performance**: measure active reading responsiveness while idle indexing is working;
    synthetic detections are not CPU/battery evidence. Ensure no foreground detector starvation.
-4. **Publication**: do not update `main`, v0.1.7 XPI or `updates.json` until the above are
-   resolved and a separate verified release is staged.
+4. **Publication policy revised by owner**: ship each complete iteration as a public,
+   non-prerelease version for direct Zotero updates. Publish the verified XPI first, then
+   update the feed to its exact SHA-256. Do not overwrite historical v0.1.7 assets.
+   Final fresh Zotero harness startups intermittently stalled; clearly record this limitation,
+   while final isolated JavaScript sparse scanning of all 19 pages of the Berger source PDF
+   yielded 19 candidate boxes and zero fallback.
 
 No user's original PDFs, production Zotero profile, or public updater were modified.

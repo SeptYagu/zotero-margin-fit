@@ -19,6 +19,16 @@ test("toolbar placement follows native Reset Zoom and synchronizes native theme 
  place.call({},doc,bar);
  assert.equal(bar.style.color,native.color);
 });
+test("toolbar single-instance cleanup removes orphan copies but keeps the authoritative toolbar",()=>{
+ const actual={removed:false,remove(){this.removed=true;}};
+ const stale1={removed:false,remove(){this.removed=true;}};
+ const stale2={removed:false,remove(){this.removed=true;}};
+ const doc={querySelectorAll:()=>[stale1,actual,stale2]};
+ Plugin.prototype.removeDuplicateToolbars.call({},doc,actual);
+ assert.equal(actual.removed,false);
+ assert.equal(stale1.removed,true);
+ assert.equal(stale2.removed,true);
+});
 test("toolbar append is temporary only when zoom group is not mounted",()=>{
  const bar={isConnected:false,style:{color:""}};
  const doc={getElementById(){return null;}};

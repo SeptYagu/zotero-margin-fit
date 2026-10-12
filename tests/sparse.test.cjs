@@ -35,13 +35,37 @@ test("phase switching breaks constant diagonal alias, but does not assert perfec
   assert.equal(s.quality,"estimated");
   assert.ok(s.hits>=10);
 });
-test("blank, dark corner, dense page fail conservatively",()=>{
+test("blank, isolated dirty corner and truly dark page fail conservatively",()=>{
   const blank=image(90,100);
   assert.equal(C.sparseInkBox(blank).quality,"fallback");
   blank.plot(0,0);
-  assert.equal(C.sparseInkBox(blank).reason,"background");
+  assert.equal(C.sparseInkBox(blank).reason,"blank-or-missed");
   const dense=image(90,100);dense.rect(1,1,88,98);
   assert.equal(C.sparseInkBox(dense).reason,"dense-background");
+});
+test("white scanned page with a black scanner-bed bar and edge streak keeps central body",()=>{
+  const im=image(360,560);
+  for(let y=68;y<524;y+=15) im.rect(64,y,239,6);
+  im.rect(0,0,360,7); // exposed black scanner edge
+  im.rect(358,0,2,560); // scanning shadow at right edge
+  const ink=C.sparseInkBox(im);
+  assert.equal(ink.quality,"estimated");
+  assert.equal(ink.rimSuppressed,true);
+  assert.ok(ink.box[0]>=57&&ink.box[2]<=310);
+  assert.ok(ink.box[1]>=57&&ink.box[3]<=540);
+  assert.ok(ink.visited/(360*560)>.245);
+  const textOCR=[0,0,360,560];
+  const corrected=C.reconcileTextInk(textOCR,ink.box,360,false,null,true,560);
+  assert.deepEqual(corrected,ink.box,'OCR overhang must not reintroduce scanner dirt');
+});
+test("sparse border filtering does not discard a real full-bleed frame without central support",()=>{
+  const im=image(360,560);
+  for(let x=0;x<360;x++) {im.plot(x,0);im.plot(x,559);}
+  for(let y=0;y<560;y++) {im.plot(0,y);im.plot(359,y);}
+  const ink=C.sparseInkBox(im);
+  assert.equal(ink.quality,"estimated");
+  assert.equal(ink.rimSuppressed,false);
+  assert.ok(ink.box[0]<=1&&ink.box[2]>=358);
 });
 test("stride=3 and odd width keep requested sampling density",()=>{
   const im=image(101,105);im.rect(25,20,60,60);

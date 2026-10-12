@@ -75,6 +75,13 @@ var MarginFitPersistentCache = (() => {
         // Legacy errors were persisted as fallback without a reason field.
         // Cannot tell deliberate whole-page fallback from render failure: retry only these.
         if (r.quality !== "reliable") continue;
+        // v0.1.7 did not separate scanner-bed streaks from real page ink.
+        // Migrate ordinary clean pages without rendering, but re-evaluate only
+        // raster pages whose cached boundary touches the physical paper rim.
+        // Otherwise this fix would be invisible on the user's old cached PDFs.
+        const rim=Math.max(8,Math.min(r.width,r.height)*.025);
+        if (r.fastPath !== true && (r.raw[0]<rim || r.raw[1]<rim ||
+            r.raw[2]>r.width-rim || r.raw[3]>r.height-rim)) continue;
         result.set(p, {raw:[...fitBox(r)], quality:"reliable"});
       }
       return result;

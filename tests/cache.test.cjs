@@ -97,6 +97,17 @@ test('legacy v0.1.7 stamped key migrates without reanalysis',async()=>{
   assert.deepEqual(e.disk.get(a.file).pages,{'1':[55,40,170,240]});
   assert.equal((await e.make().load()).size,1);
 });
+test('v0.1.7 scan-rim cache pages are re-detected but clean and text-only pages migrate',async()=>{
+  const e=env(),a=e.make(),legacyKey=a.key+'-1234-1791510000000';
+  const location=e.path.join(a.directory,legacyKey+'.json');
+  e.disk.set(location,{storageVersion:3,algorithmVersion:5,key:legacyKey,numPages:12,
+    pages:[[1,{...rec(),raw:[0,20,195,240],fastPath:false}],
+      [2,{...rec(),raw:[20,40,180,240],fastPath:false}],
+      [3,{...rec(),raw:[0,20,195,240],fastPath:true}]]});
+  const loaded=await a.load();
+  assert.deepEqual([...loaded.keys()],[2,3],
+    'old suspicious scanned edge is remeasured; safe entries remain cached');
+});
 test('cache with newer algorithm version remains unchanged under old plugin',async()=>{
   const e=env(),a=e.make();
   const higher={algorithmVersion:2,key:a.key,numPages:12,pages:{'1':[20,40,180,240]}};

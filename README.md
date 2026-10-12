@@ -50,7 +50,8 @@ npm test
 npm run build
 ```
 
-Official build: dist/zotero-margin-fit-0.1.7.xpi. Zotero automatic updates use the public feed once the GitHub Release XPI and SHA-256 have been verified.\n
+Official build: dist/zotero-margin-fit-0.1.7.xpi. Zotero automatic updates use the public feed once the GitHub Release XPI and SHA-256 have been verified.
+
 在安装 Zotero 的 Windows 电脑上运行真实阅读器回归：
 
 ```sh

@@ -28,6 +28,55 @@ See publicly documented PDF.js `ScrollMode.PAGE` and Zotero users' single-page-s
 
 ## Implementation design
 
+### Non-negotiable: zero visible un-fitted intermediate page
+
+A naive reuse of the v0.1.7 navigation path **would** first let PDF.js show a new page
+at its previous zoom/scroll position, then correct the zoom and content center after
+a delayed detector result or the 500ms idle/refine loop. That flicker is not acceptable
+in v0.1.8's height/page-turn mode.
+
+Instead make every navigation a **single visual transaction**:
+
+1. **Preparation while the current page remains visible:** retain a per-document,
+   revision-aware exact safe content box for the next/previous PDF pages using the
+   existing serial prefetch; precompute the target `scale_p` for the current viewport,
+   page rotation and target bounds. This must happen **before** page selection, not
+   in the old `pagechanging → 75ms flush → 500ms refine` sequence.
+2. **Frame-atomic page switch (warm cache):** the page-turn handler cancels native
+   pixel scrolling, coalesces gestures, and synchronously applies the **target page,
+   scale and vertical content center**. Account for PDF.js setters that themselves
+   reposition the page: calculate/adjust the final scroll offset **after** its page DOM
+   is attached, before the browser's first paint. Use one layout measurement if
+   necessary, not a timer-driven corrective sequence. Avoid an `await` or another
+   visible frame between displaying the target page and its final transform/offset.
+   A new page with effectively unchanged zoom **must still be recentered**, unlike
+   the v0.1.7 continuous-reading path.
+3. **Cold-cache / long jump:** if exact target bounds or native page paint are not
+   ready, **do not expose** the raw target page. Keep the previous page visually
+   stable while preparing the target (or hold a lightweight previous-frame overlay
+   if the native single-page viewer must attach the target to render it). Commit the
+   target view only after safe bounds, final position and paint readiness are met.
+   A slight delay is preferable to showing blank paper then snapping, but impose
+   bounded latency and allow cancellation of obsolete page-turn requests. Only when
+   the boundary is genuinely unreliable should a deliberate, stable full-page fallback
+   be committed directly (not shown as an intermediate step before later cropping).
+4. **Preview cache is not render cache:** exact margin records permit immediate
+   geometry decisions; a newly visited page's actual PDF.js bitmap/text layers may
+   still be asynchronous. Distinguish these states in telemetry. If the native
+   `pagerendered` event occurs after the page swap, keep the previous visual until
+   the new page is ready without capturing a costly full-resolution screenshot
+   on every normal wheel event.
+5. **Single-writer, single-paint contract:** one controller owns the paging request;
+   `epoch` tokens suppress older detection/renderer completions; native page/
+   scale/scroll events produced by the commit are muted. No delayed recenter,
+   double zoom, old-page snapback, or visible flash of top/bottom paper margins.
+   Restore original PDF.js layout/gesture handling on Fit Width, OFF or unload.
+
+Benchmark both **turn latency** and **the first painted frame**. A turn counts as
+successful only if the first visible target-page frame has the safe content interval
+within the viewport; checking only the final settled position would miss this defect.
+Never compromise fidelity of original PDF canvas, text selection or annotations.
+
 **1. Mode lifecycle and isolation**
 
 - Add a per-`Controller` `heightPageMode` flag and preserve `previousScrollMode`, `previousSpreadMode` before first activation.
@@ -75,6 +124,7 @@ Reliable full-height ink fit is the success criterion; avoid clamping height by 
 ## Concrete acceptance tests
 
 1. A page with large *physical* top/bottom white margins: after Fit Height, only **one page exists in the rendered viewer**, content's entire protected `[t,b]` interval lies inside the viewport, blank outer margins are mostly offscreen, and canvas text/annotation DOM remains original.
+1a. **First-frame contract:** record/render a video or frame-by-frame test for a warm-cache 8→9→8 turn and a cold-cache distant jump. The **very first visible target-page frame** must already be content-fit and content-centered. Fail if a full-margin/old-scale target frame is visible even for one animation frame. For a slow uncached page, retain the previous page/transition overlay until the new view is ready; do not claim instant turn when it takes time to prepare.
 2. Three consecutive wheel detents advance exactly three pages; one reverse detent goes back exactly one page; trackpad swipe/inertia does not cascade unexpectedly.
 3. A page with virtually no margins, a short title page, a small score, a scanned-image page, and a rotated page each remain fully readable; fallback shows full page without cropping.
 4. Repeated switching 1→2→1→2, different page dimensions, and 30 rapid page turns never put page content above/below viewport or show two pages at once; re-centering after same-zoom turn is explicitly checked.

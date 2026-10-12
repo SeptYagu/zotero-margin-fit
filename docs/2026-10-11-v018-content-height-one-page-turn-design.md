@@ -26,6 +26,47 @@ Reproducible verification: `npm run test:page-mode-probe` executes `tests/v018-p
 
 See publicly documented PDF.js `ScrollMode.PAGE` and Zotero users' single-page-scrolling request. Zotero does not currently offer the combined content-height paging workflow as a single built-in command.
 
+## Minimal persistent cache: four coordinates per reliable page
+
+**Design decision for v0.1.8:** disk storage is a result cache, not a serialized
+detector-session object. A cached ordinary page is only its four detected PDF
+content coordinates, `[left, top, right, bottom]`, indexed by page number:
+
+```json
+{"format":4,"algorithm":6,"pages":{"8":[58.57,138.57,361.43,651.66],"9":[148.57,140,451.43,651.66]}}
+```
+
+The existing PDF fingerprint, source-file stamp and page count are retained **once
+in the file-level key/header**, never repeated in each page's payload. Rotation,
+paper size and PDF.js pixel scale are recovered from the native PDF/page viewport.
+No per-page `width`, `height`, `rotation`, `viewerRotation`, `quality`, `version`,
+`fastPath`, `folio`, `boundsKind`, `samplingRate`, `boundaryConfidence`
+or `elapsedMs` should be serialized. The in-memory detector may still calculate
+any of these values to determine whether a content boundary is safe.
+
+Persist **only valid and reliable boxes**. Unreliable/failed results have no saved
+four-coordinate entry; their conservative fallback stays a runtime decision.
+This choice means unusual pages with unreliable boundaries may be checked again
+on reopening. Do not silently reclassify a fallback as reliable or crop guessed ink.
+
+**Compatibility constraint:** v0.1.7 sometimes has a separate `widthFitRaw`
+body-width rectangle for a marginal page number. Persisting only the ordinary
+`raw` rectangle would regress these cases. During implementation either
+derive a single canonical four-coordinate result appropriate for both fitting
+directions (without losing important page content), or recompute that exceptional
+width-only refinement as needed. Never add a second per-page persisted rectangle
+as an unnoticed workaround. Include comparison tests against v0.1.7's confirmed
+width margins and height safety; prioritize correct reading geometry over
+forcing a byte-saving change that breaks existing behavior.
+
+Use bounded numeric precision adequate for PDF-unit content fitting; reject
+nonfinite, inverted or out-of-page cached coordinates. Retain delayed batched
+writes and serialized merging for simultaneous views. Migrate old cache entries
+once, accepting reliable coordinates and rechecking ambiguous cases, rather
+than forcing a blanket full rescan. Reducing serialized metadata mainly improves
+simplicity, file size and loading/merging cost; it **does not** by itself prove
+faster PDF detection.
+
 ## Implementation design
 
 ### Immediate page navigation; no intervention in PDF.js drawing

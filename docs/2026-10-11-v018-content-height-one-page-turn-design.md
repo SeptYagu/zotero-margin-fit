@@ -130,6 +130,15 @@ only true failures or invalid records should be retried, not every unusual page.
 simplicity, file size and loading/merging cost; it **does not** by itself prove
 faster PDF detection.
 
+## Idle background indexing of remaining pages
+
+In addition to the immediate visible-page and two-neighbor priority, v0.1.8
+should gradually fill all missing page-border cache entries during quiet
+reading time, **one offscreen page at a time**, yielding whenever the user
+interacts. See [the dedicated idle indexing design](2026-10-12-v018-idle-background-book-indexing.md)
+for activation, foreground preemption, cache batching and test criteria.
+Completed background results must never recenter the currently visible page.
+
 ## Implementation design
 
 ### Immediate page navigation; no intervention in PDF.js drawing

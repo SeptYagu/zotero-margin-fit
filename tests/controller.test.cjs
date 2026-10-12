@@ -30,6 +30,7 @@ function setup(count=1) {
   const session=new global.MarginFitCore.Session(count,async()=>record);
   const controller=new Controller(view,session,host);
   return {controller,host,viewer,bus,session,record,view,nativeWidth,nativeHeight,stats,errors,
+    emitDom:(type,event)=>listeners.get(type)?.(event),
     enable(value=true){enabled=value;session.setEnabled(value);},advance(ms){time+=ms;},getStats:()=>lastStats};
 }
 test('original native width/height pass through when disabled; stats and methods restore',()=>{
@@ -296,5 +297,73 @@ test('manual zoom does not switch to one-page mode; next Height Fit stays contin
  assert.equal(f.viewer.scrollMode,0);
  await f.controller.request('width');
  assert.equal(f.viewer.scrollMode,0);
+ f.controller.close();
+});
+
+
+test('PageDown and PageUp move exactly one detected content page in continuous view',async()=>{
+ const f=setup(6);f.enable();f.controller.mode='height';f.viewer.scrollMode=0;
+ // A real PDF.js document keeps every page view in the continuous layout.
+ f.viewer.getPageView=i=>({
+   viewport:f.viewer.getPageViewOriginal?f.viewer.getPageViewOriginal.viewport:
+     {scale:4/3,rotation:0,width:800,height:1066.67},
+   div:{getBoundingClientRect:()=>({
+     left:0,right:800,
+     top:i*1200-f.viewer.container.scrollTop,
+     bottom:(i+1)*1200-f.viewer.container.scrollTop
+   })}
+ });
+ f.viewer._getVisiblePages=()=>({views:[{id:f.viewer.currentPageNumber,
+   view:f.viewer.getPageView(f.viewer.currentPageNumber-1)}]});
+ const key=(name,options={})=>{
+   const e={key:name,ctrlKey:false,altKey:false,metaKey:false,
+     target:{closest:()=>null},
+     preventDefault(){this.blocked=true;},stopImmediatePropagation(){this.stopped=true;},
+     ...options};
+   f.emitDom('keydown',e);return e;
+ };
+ // A prior async PDF.js page event may leave the stored lastPage stale;
+ // the keyboard command must use the page actually visible in the viewport.
+ f.controller.lastPage=3;
+ const down=key('PageDown');
+ assert.equal(down.blocked,true);
+ assert.equal(down.stopped,true);
+ await new Promise(r=>setTimeout(r,130));
+ assert.equal(f.controller.lastPage,2,'one press lands on exactly the next page');
+ assert.ok(f.viewer.container.scrollTop>0,'scrolls to page 2 content, not to a single-page DOM');
+ assert.equal(f.viewer.scrollMode,0);
+ f.viewer.currentPageNumber=2;
+ const up=key('PageUp');
+ assert.equal(up.blocked,true);
+ await new Promise(r=>setTimeout(r,140));
+ assert.equal(f.controller.lastPage,1,'PageUp returns one page');
+ const arrow=key('ArrowDown');
+ assert.equal(arrow.blocked,undefined,'arrow key retains its normal fine scrolling');
+ const excluded=key('PageDown',{target:{closest:()=>({})}});
+ assert.equal(excluded.blocked,undefined,'do not take over editor input');
+ f.controller.close();
+});
+
+test('ordinary movement on the same page is not snapped; entering next page is',async()=>{
+ const f=setup(6);f.enable();f.controller.mode='height';f.viewer.scrollMode=0;
+ f.viewer.getPageView=i=>({
+   viewport:{scale:4/3,rotation:0,width:800,height:1066.67},
+   div:{getBoundingClientRect:()=>({
+     left:0,right:800,top:i*1200-f.viewer.container.scrollTop,
+     bottom:(i+1)*1200-f.viewer.container.scrollTop
+   })}
+ });
+ f.viewer._getVisiblePages=()=>({views:[{id:f.viewer.currentPageNumber,
+   view:f.viewer.getPageView(f.viewer.currentPageNumber-1)}]});
+ f.viewer.container.scrollTop=25;
+ f.controller.input(true);
+ await new Promise(r=>setTimeout(r,200));
+ assert.equal(f.viewer.container.scrollTop,25,'free scroll within current page');
+ f.viewer.currentPageNumber=2;f.viewer.container.scrollTop=1270;
+ f.controller.input(true);
+ await new Promise(r=>setTimeout(r,240));
+ assert.equal(f.controller.lastPage,2);
+ assert.notEqual(f.viewer.container.scrollTop,1270,'crossing the page snaps to its content');
+ assert.equal(f.viewer.scrollMode,0,'PDF remains a continuous document');
  f.controller.close();
 });

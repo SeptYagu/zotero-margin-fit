@@ -54,7 +54,19 @@ var MarginFitRuntime = (() => {
       this.listen(this.win, "pointerup", () => { this.dragging = false; this.arm(); }, true);
       this.listen(this.win, "pointercancel", () => { this.dragging = false; this.arm(); }, true);
       this.listen(this.win, "keydown", event => {
-        if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) this.input(true);
+        if (this.host.enabled() && this.mode === "height" &&
+            (event.key === "PageDown" || event.key === "PageUp") &&
+            !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey &&
+            !event.target?.closest?.("input,textarea,select,[contenteditable='true'],[role='textbox'],.annotationEditorLayer")) {
+          event.preventDefault();
+          event.stopImmediatePropagation?.();
+          const from=this.page();
+          const p=Math.max(1,Math.min(this.session.count,
+            from+(event.key === "PageDown" ? 1 : -1)));
+          if(p!==from)this.snapToContent(p,from).catch(error=>this.failure(error));
+          return;
+        }
+        if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", " "].includes(event.key)) this.input(true);
       }, true);
       this.bus("scalechanging", () => {
         if (this.muted) return;
@@ -141,6 +153,12 @@ var MarginFitRuntime = (() => {
         this.inputFlushTimer = null;
         const p = this.page();
         if (p !== this.lastPage) {
+          if (this.mode === "height") {
+            // User crossed into another page: one content-centered landing.
+            // Within a page, retain all native scrolling and arrow-key movement.
+            this.snapToContent(p).catch(error => this.failure(error));
+            return;
+          }
           this.readingDirection = p > this.lastPage ? 1 : -1;
           this.manual = false;
           this.userHeldPage = null;
@@ -151,6 +169,29 @@ var MarginFitRuntime = (() => {
         this.arm();
       };
       schedule(this.epoch);
+    }
+    async snapToContent(p,previous=this.lastPage) {
+      if (this.closed || !this.host.enabled() || this.mode !== "height") return;
+      p=Math.max(1,Math.min(this.session.count,p));
+      if (p === previous) return;
+      this.readingDirection=p>previous?1:-1;
+      const token=++this.epoch;
+      this.cancelTimer();
+      this.userHeldPage=null;this.manual=false;
+      this.lastInput=this.host.now();
+      this.lastPage=p;
+      const rotation=this.viewer.getPageView(p-1).viewport.rotation;
+      this.session.visit(p,rotation);
+      this.host.indexer?.onNavigation(this,p);
+      // Cached pages land immediately. Uncached ones use the existing single
+      // foreground detector, never a second render or custom page view.
+      const record=await this.session.visible(p,rotation,()=>
+        !this.closed && this.host.enabled() && token===this.epoch);
+      if (record && token===this.epoch && this.mode==="height") {
+        await this.apply(record,p,token,true,false,true);
+        this.appliedEpoch=token;
+      }
+      if (token===this.epoch) this.arm();
     }
     arm() {
       this.cancelTimer();
@@ -282,8 +323,7 @@ var MarginFitRuntime = (() => {
         }
         // A layout turn is needed only after a real scale change. When only
         // checking the next nearly-identical page, stay entirely synchronous.
-        // PAGE-mode navigation uses the synchronous PDF.js scale/layout setter.
-        // Avoid exposing one intermediate frame before centering cached content.
+        // A content-page jump skips the extra layout turn after an unchanged scale.
         if (scaled && !navigation) await new Promise(resolve => this.host.setTimeout(resolve, 0));
         if (!valid()) return;
         const page = this.viewer.getPageView(p-1);

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.12 ? 2026-10-12
+
+- Preserve all pages in PDF.js continuous-scroll layout, but make PageDown/PageUp target the neighboring *content* page rather than shifting by viewport height.
+- Preserve fine scroll/arrow-key adjustment inside a page; snap to the next page's detected content center only after the user actually crosses into that page.
+- Reuse existing 75 ms input debouncer, cached bounds, single foreground detector, and page fitting; do not restore native PDF.js PAGE mode or custom wheel-gate timers.
+- Fix explicit page keys using the actually visible page rather than a potentially stale internal last-page value.
+
 ## 0.1.11 ? 2026-10-12
 
 - Replace single-PAGE Fit Height with content-aware scale in the native continuous-scrolling PDF viewer. All pages remain in the document and scrollbar; normal arrow/Page Down/mouse wheel/touchpad behavior is no longer intercepted.

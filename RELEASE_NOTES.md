@@ -1,24 +1,18 @@
-# MarginFit v0.1.11 ? Continuous Fit Height
+# MarginFit v0.1.12 ? One-content-page navigation
 
-**Regular public release** for Zotero 10.0.5?10.0.x.
+Regular public release for Zotero 10.0.5?10.0.x.
 
-This release corrects the Fit Height interaction model, not just an isolated scroll bug.
+This version combines the interaction requirements of v0.1.11 with content-page navigation.
 
-## Expected behavior
-- **Detect Margins ON + Fit Height:** determine scale using the current PDF page's detected content height, but retain Zotero/PDF.js's original continuous document and full-document scrollbar.
-- Mouse wheel, touchpad, arrow keys, Page Down/Up, native page-number jumps and manual zoom retain normal PDF reader behavior. There is no synthetic "two swipes per page" or one-page-at-a-time state.
-- A PDF left in single-page mode by a prior release is returned to native continuous mode on a fresh Fit request.
-- **Detect Margins OFF:** uses Zotero's original native Fit Height behavior as before.
-
-## Changes
-- Remove all PAGE-mode activation, custom wheel interception, gesture accumulation and one-page navigation code.
-- Keep the existing height content-bounds scale computation, per-page background cache, JSONL v0.1.9 persistence, and Width Fit folio handling.
-- Historical v0.1.8 PAGE-mode experiment records remain archived for traceability, but are no longer active functional acceptance tests.
+- The right scrollbar and PDF.js layout still represent the **entire PDF**, not a single mounted page.
+- Touchpad, wheel, and Arrow Up/Down retain **fine adjustment within the current page**.
+- When scrolling enters a different physical page, MarginFit uses the existing 75 ms input quiet-window to position that new page's detected content vertically in the viewport. It does not snap back during a movement that remains on the same page.
+- **PageDown / PageUp** are handled as exactly one neighboring PDF page and land on that page's detected content, rather than scrolling by one screen-height. Modified shortcuts and typing/editing controls are not overridden.
+- The existing sparse boundary detection, far-away folio behavior, JSONL cache, and one-worker background indexing are unchanged.
+- Old single-DOM-page PDF.js PAGE mode stays completely disabled.
 
 ## Verification
-- 91/91 unit tests passed.
-- 20/20 isolated Zotero 10.0.6 continuous Fit Height regression checks passed.
-- 10/10 separate isolated Zotero background indexing and JSONL persistence checks passed.
-- Native acceptance checks cover: full multi-page DOM and document scrollbar, content bounds fitted to available viewport, native scrolling, page-number navigation, uncaptured wheel/Page Down events, manual zoom, and recovery from prior PAGE mode.
-- Synthetic keyboard events verify the extension does not prevent the native action; testing all physical keyboard and touchpad devices is not claimed.
-- No production Zotero profile, user PDF, annotations, or saved reading data were modified during testing.
+- 93/93 Node unit checks passed, including the one-page key calculation, stale page state, fine movement, and page crossing.
+- 28/28 native Zotero 10.0.6 integration assertions passed for full-document scrolling, actual content-page landing, fine-grained 23px scrolling and cross-page snapping. Background cache regression is covered by prior v0.1.11 native results, with no cache code changes.
+- **Hardware-key caveat:** the debugger's untrusted synthetic KeyboardEvent did not reach any native keydown listener; the native test therefore exercises the actual jump method directly while the key dispatch logic is unit-tested. Physical PageDown/PageUp keys were not independently tested on hardware; they still require practical confirmation.
+- No real user PDF or production Zotero profile was modified.

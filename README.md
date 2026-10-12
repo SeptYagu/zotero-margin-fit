@@ -6,6 +6,13 @@ Zotero PDF 阅读器的智能内容适应插件。保留原生 **Reset Zoom**，
 
 本项目依照 [需求文档](09-智能去白边阅读开关.md) 实现。当前正式版本为 **0.1.8**，使用 Zotero 私有阅读器接口。兼容范围限定为 Zotero 10.0.x。运行测试的具体版本、通过项和待测项见 [验证记录](docs/verification.md)。
 
+## v0.1.12 content-page stepping
+
+- Keep the full PDF and full-length scrollbar in native continuous scrolling.
+- Fine-grained wheel, touchpad and Up/Down arrows can move within a page without snapping back.
+- Once normal scrolling enters the next/previous page, align to that page's detected content center after the existing input quiet-window.
+- PageDown and PageUp directly target the next or preceding page's content center, not a viewport-sized scroll. Editing fields and modified selection shortcuts retain native handling.
+
 ## v0.1.11 continuous Fit Height
 
 - Fit Height uses the detected content bounds while retaining native PDF.js continuous vertical scrolling, full-document scrollbar, all PDF pages, keyboard navigation, mouse-wheel and touchpad behavior.
@@ -76,7 +83,7 @@ npm test
 npm run build
 ```
 
-Official build: dist/zotero-margin-fit-0.1.11.xpi. Zotero automatic updates use the public feed once the GitHub Release XPI and SHA-256 have been verified.
+Official build: dist/zotero-margin-fit-0.1.12.xpi. Zotero automatic updates use the public feed once the GitHub Release XPI and SHA-256 have been verified.
 
 在安装 Zotero 的 Windows 电脑上运行真实阅读器回归：
 

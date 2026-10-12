@@ -265,3 +265,28 @@ test('tiny per-page center changes do not write scrollLeft or schedule settling 
   assert.ok(Date.now()-started<250,'no unconditional 50ms scroll-settling timer');
   f.controller.close();
 });
+
+test('Fit Height translates mouse detents and touchpad inertia into discrete page turns',async()=>{
+  const f=setup(20);f.enable();
+  const turned=[];f.controller.heightPageMode=true;
+  f.controller.turnPage=direction=>turned.push(direction);
+  const wheel=(deltaY,deltaMode=0,options={})=>{
+    const event={deltaY,deltaX:0,deltaMode,ctrlKey:false,metaKey:false,shiftKey:false,
+      target:{closest:()=>null},preventDefault(){this.blocked=true;},
+      stopImmediatePropagation(){},...options};
+    f.controller.heightWheel(event);return event;
+  };
+  assert.equal(wheel(120).blocked,true);
+  assert.deepEqual(turned,[1]);
+  wheel(-1,1);assert.deepEqual(turned,[1,-1]);
+  for(let i=0;i<15;i++)wheel(12);
+  assert.deepEqual(turned,[1,-1,1],'one touchpad inertia burst turns once');
+  await new Promise(r=>setTimeout(r,275));
+  for(let i=0;i<7;i++)wheel(12);
+  assert.deepEqual(turned,[1,-1,1,1],'separated touchpad burst turns again');
+  assert.equal(wheel(120,0,{ctrlKey:true}).blocked,undefined,'native Ctrl+Wheel stays unhandled');
+  assert.equal(wheel(120,0,{target:{closest:()=>true}}).blocked,undefined,'nested editor wheel stays native');
+  f.controller.manual=true;
+  assert.equal(wheel(120).blocked,undefined,'manual zoom allows intra-page scrolling');
+  f.controller.close();
+});

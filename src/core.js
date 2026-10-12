@@ -532,15 +532,14 @@ var MarginFitCore = (() => {
     }
     // The actual page is never blocked by book-wide samples. Both startup and
     // explicit Fit share this serialized foreground path (one detector worker).
-    async visible(p, rotation, valid = () => true) {
-      await this.ready;
-      if (!valid()) return null;
+    visible(p, rotation, valid = () => true) {
       const cached=this.cache.get(p);
-      if (cached && cached.rotation === rotation) {
+      if (cached && cached.rotation === rotation && valid()) {
         this.metrics.cacheHits++;
-        return cached; // never wait behind offscreen background work on a cache hit
+        return Promise.resolve(cached); // immediate hot-cache path for page turns
       }
       this.backgroundToken?.cancel?.();
+      // Preserve original foreground serial ordering on an uncached startup.
       return this.serial(() => valid() ? this.read(p, rotation) : null);
     }
     async local(p, rotation, valid, onCurrent, direction = 1) {

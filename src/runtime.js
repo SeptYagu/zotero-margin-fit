@@ -26,6 +26,9 @@ var MarginFitRuntime = (() => {
       this.epoch = 0; this.lastInput = host.now(); this.lastPage = this.viewer.currentPageNumber;
       this.readingDirection = 1;
       this.closed = false; this.muted = false; this.manual = false;
+      this.heightPageMode = false; this.priorLayout = null;
+      this.wheelAccum = 0; this.wheelConsumed = false; this.wheelResetTimer = null;
+      this.pendingPage = null;
       // A user's movement within a page is authoritative until they leave it.
       // This is independent of manual zoom, which existing code already tracks.
       this.userHeldPage = null;
@@ -45,7 +48,12 @@ var MarginFitRuntime = (() => {
       }));
       this.restores.push(C.hook(view, "_onChangeViewStats", data => stats.call(view,
         host.enabled() ? into(this.win,{ ...data, canZoomReset: true }) : data)));
-      this.listen(this.container, "scroll", () => { if (!this.muted) this.input(true); });
+      this.listen(this.container, "scroll", () => {
+        if (!this.muted && !(this.heightPageMode && this.pendingPage===this.viewer.currentPageNumber))
+          this.input(true);
+      });
+      this.listen(this.container, "wheel", event => this.heightWheel(event),
+        { passive:false, capture:true });
       this.listen(this.container, "wheel", () => this.input(true), { passive: true });
       this.listen(this.container, "touchmove", () => this.input(true), { passive: true });
       this.listen(this.win, "pointerdown", () => { this.dragging = true; this.input(); }, true);
@@ -60,7 +68,14 @@ var MarginFitRuntime = (() => {
         this.manual = true; this.epoch++; this.cancelTimer();
       });
       this.bus("rotationchanging", () => { this.manual = false; this.input(); });
-      this.bus("pagechanging", () => { if (!this.muted) this.input(); });
+      this.bus("pagechanging", event => {
+        if (this.muted) return;
+        if (this.heightPageMode) {
+          const p=event?.pageNumber ?? this.viewer.currentPageNumber;
+          if (p===this.pendingPage) return; // PDF.js event from our own page assignment
+          this.navigateTo(p,true).catch(error=>this.failure(error));
+        } else this.input();
+      });
       if (this.win.ResizeObserver) {
         this.size = [this.container.clientWidth,this.container.clientHeight];
         this.resize = new this.win.ResizeObserver(() => {
@@ -73,6 +88,7 @@ var MarginFitRuntime = (() => {
         });
         this.resize.observe(this.container);
       }
+      if (host.enabled() && this.mode==="height") this.enterHeightMode();
       this.view._updateViewStats();
       this.listen(this.win,"unload",() => this.close(true));
       this.begin();
@@ -86,6 +102,98 @@ var MarginFitRuntime = (() => {
       this.listeners.push(() => this.app.eventBus.off(type, fn));
     }
     cancelTimer() { this.host.clearTimeout(this.timer); this.timer = null; }
+    enterHeightMode() {
+      if (this.heightPageMode) return;
+      const viewer=this.viewer;
+      if (!viewer || !("scrollMode" in viewer)) return;
+      this.priorLayout={scrollMode:viewer.scrollMode,spreadMode:viewer.spreadMode};
+      const muted=this.muted;this.muted=true;
+      try {
+        if ("spreadMode" in viewer) viewer.spreadMode=0; // single, not facing pages
+        viewer.scrollMode=3; // PDF.js native ScrollMode.PAGE
+        this.heightPageMode=viewer.scrollMode===3;
+      } catch (_) { this.heightPageMode=false; }
+      finally { this.muted=muted; }
+    }
+    leaveHeightMode() {
+      if (!this.heightPageMode) return;
+      const old=this.priorLayout,viewer=this.viewer;
+      this.heightPageMode=false;this.priorLayout=null;
+      this.host.clearTimeout(this.wheelResetTimer);this.wheelResetTimer=null;
+      this.wheelAccum=0;this.wheelConsumed=false;
+      const muted=this.muted;this.muted=true;
+      try {
+        // Respect native layout edits made later by the user.
+        if (old && viewer.scrollMode===3) viewer.scrollMode=old.scrollMode;
+        if (old && viewer.spreadMode===0) viewer.spreadMode=old.spreadMode;
+      } catch (_) { /* reader may already be destroyed */ }
+      finally { this.muted=muted; }
+    }
+    heightWheel(event) {
+      if (!this.heightPageMode || !this.host.enabled() || this.manual ||
+          event.ctrlKey || event.metaKey || event.shiftKey ||
+          Math.abs(event.deltaX)>Math.abs(event.deltaY) ||
+          !event.deltaY) return;
+      const element=event.target?.closest?.("input,textarea,select,[contenteditable='true'],[role='textbox'],.annotationEditorLayer");
+      if (element) return; // editing and nested UI retain native wheel behavior
+      event.preventDefault();
+      event.stopImmediatePropagation?.();
+      const delta=event.deltaY;
+      const coarse=event.deltaMode!==0 || Math.abs(delta)>=80;
+      if (coarse) {
+        this.wheelAccum=0;this.wheelConsumed=false;
+        this.turnPage(delta>0?1:-1);
+        return;
+      }
+      this.host.clearTimeout(this.wheelResetTimer);
+      this.wheelResetTimer=this.host.setTimeout(()=>{
+        this.wheelAccum=0;this.wheelConsumed=false;this.wheelResetTimer=null;
+      },240);
+      if (this.wheelConsumed) return;
+      if (Math.sign(this.wheelAccum)!==Math.sign(delta)) this.wheelAccum=0;
+      this.wheelAccum+=delta;
+      if (Math.abs(this.wheelAccum)<65) return;
+      this.wheelConsumed=true;
+      this.turnPage(this.wheelAccum>0?1:-1);
+    }
+    turnPage(direction) {
+      const p=Math.max(1,Math.min(this.session.count,
+        this.viewer.currentPageNumber+direction));
+      if (p===this.viewer.currentPageNumber) return;
+      this.navigateTo(p).catch(error=>this.failure(error));
+    }
+    async navigateTo(p,alreadySelected=false) {
+      if (this.closed || !this.heightPageMode || !this.host.enabled()) return;
+      const from=this.lastPage;
+      p=Math.max(1,Math.min(this.session.count,p));
+      this.readingDirection=p>=from?1:-1;
+      this.epoch++;this.cancelTimer();this.manual=false;this.userHeldPage=null;
+      this.lastInput=this.host.now();
+      const token=this.epoch;
+      this.pendingPage=p;
+      if (!alreadySelected) {
+        const wasMuted=this.muted;this.muted=true;
+        try { this.viewer.currentPageNumber=p; }
+        finally { this.muted=wasMuted; }
+      }
+      this.lastPage=p;
+      this.session.visit(p,this.viewer.getPageView(p-1).viewport.rotation);
+      this.host.indexer?.onNavigation(this,p);
+      // The native page transition has already happened. Cached border data
+      // skips rasterization; PDF.js handles normal painting in all cases.
+      const rotation=this.viewer.getPageView(p-1).viewport.rotation;
+      try {
+        const record=await this.session.visible(p,rotation,()=>
+          !this.closed && token===this.epoch && this.host.enabled());
+        if (record && token===this.epoch && this.heightPageMode) {
+          await this.apply(record,p,token,true,false,true);
+          this.appliedEpoch=token;
+        }
+        if (token===this.epoch) this.arm();
+      } finally {
+        if (this.pendingPage===p && token===this.epoch) this.pendingPage=null;
+      }
+    }
     page() {
       if (this.closed || !alive(this.container)) return this.lastPage;
       const root = this.container.getBoundingClientRect();
@@ -167,7 +275,8 @@ var MarginFitRuntime = (() => {
         if (r && !this.closed && this.host.enabled() && token === this.epoch &&
             !this.dragging && !this.manual && this.page() === p) {
           if (r.quality === "fallback") this.fallback(r.reason);
-          else await this.apply(r, p, token, false, true);
+          if (r.quality === "reliable" || this.mode === "height")
+            await this.apply(r, p, token, false, true);
         }
         if (this.host.now()-this.lastInput >= C.IDLE_MS) this.refine();
         else this.arm();
@@ -193,7 +302,10 @@ var MarginFitRuntime = (() => {
               return;
           } else if (this.appliedEpoch === token) return;
           this.appliedEpoch = token;
-          if (record.quality !== "reliable") { this.fallback(record.reason); return; }
+          if (record.quality !== "reliable") {
+            this.fallback(record.reason);
+            if (this.mode !== "height") return;
+          }
           await this.apply(record, p, token);
         }, this.readingDirection);
         if (this.stable(token,p)) {
@@ -205,6 +317,8 @@ var MarginFitRuntime = (() => {
     }
     async request(mode) {
       this.mode = mode; this.host.setMode(mode);
+      if (mode==="height" && this.host.enabled()) this.enterHeightMode();
+      else this.leaveHeightMode();
       // Explicit commands intentionally override the user's held position.
       this.userHeldPage = null;
       this.manual = false; this.epoch++; this.cancelTimer();
@@ -220,7 +334,8 @@ var MarginFitRuntime = (() => {
           () => !this.closed && this.host.enabled() && token === this.epoch);
         if (!record || this.closed || token !== this.epoch || !this.host.enabled()) return;
         if (record.quality !== "reliable") this.fallback(record.reason);
-        else await this.apply(record, p, token, true);
+        if (record.quality === "reliable" || this.mode === "height")
+          await this.apply(record, p, token, true);
         if (this.closed || token !== this.epoch || !this.host.enabled()) return;
         this.appliedEpoch = token;
         this.arm();
@@ -234,7 +349,7 @@ var MarginFitRuntime = (() => {
       this.metrics.fallback++;
       this.host.status(this.view, reason || "unreliable");
     }
-    async apply(record, p, token, explicit = false, initial = false) {
+    async apply(record, p, token, explicit = false, initial = false, navigation = false) {
       const valid = () => !this.closed && this.host.enabled() && token === this.epoch &&
         alive(this.app) && alive(this.container) &&
         this.document === this.app.pdfDocument &&
@@ -247,7 +362,7 @@ var MarginFitRuntime = (() => {
       const fitting = C.fitPageRecord(record, this.session.folioPattern, p);
       const decision = C.scaleDecision(fitting, this.mode,
         { width: Math.max(1,this.container.clientWidth-16)/unitScale, height: Math.max(1,this.container.clientHeight-16)/unitScale },
-        this.viewer.currentScale, this.anchor, explicit);
+        this.viewer.currentScale, this.anchor, explicit && !navigation);
       const currentPage = this.viewer.getPageView(p-1);
       const before = currentPage.div.getBoundingClientRect();
       const root = this.container.getBoundingClientRect();
@@ -267,7 +382,9 @@ var MarginFitRuntime = (() => {
         }
         // A layout turn is needed only after a real scale change. When only
         // checking the next nearly-identical page, stay entirely synchronous.
-        if (scaled) await new Promise(resolve => this.host.setTimeout(resolve, 0));
+        // PAGE-mode navigation uses the synchronous PDF.js scale/layout setter.
+        // Avoid exposing one intermediate frame before centering cached content.
+        if (scaled && !navigation) await new Promise(resolve => this.host.setTimeout(resolve, 0));
         if (!valid()) return;
         const page = this.viewer.getPageView(p-1);
         const r = page.div.getBoundingClientRect();
@@ -322,7 +439,7 @@ var MarginFitRuntime = (() => {
         } else {
           this.metrics.skippedPositionWrites = (this.metrics.skippedPositionWrites || 0)+1;
         }
-        this.host.status(this.view, null);
+        this.host.status(this.view, record.quality === "fallback" ? (record.reason || "unreliable") : null);
         // Mute only actual self-originated scroll events; no timer on a no-op.
         if (horizontalWritten || verticalWritten)
           await new Promise(resolve => this.host.setTimeout(resolve, 50));
@@ -335,6 +452,8 @@ var MarginFitRuntime = (() => {
       this.host.clearTimeout(this.inputFlushTimer); this.inputFlushTimer = null;
       this.session.setEnabled(this.host.enabled());
       this.anchor = this.viewer.currentScale;
+      if (this.host.enabled() && this.mode==="height") this.enterHeightMode();
+      else this.leaveHeightMode();
       this.view._updateViewStats();
       if (this.host.enabled()) this.begin();
       else this.host.indexer?.stop(this);
@@ -342,6 +461,7 @@ var MarginFitRuntime = (() => {
     close(unloading = false) {
       if (this.closed) return;
       this.host.indexer?.stop(this);
+      this.leaveHeightMode();
       this.closed = true; this.epoch++; this.cancelTimer();
       this.host.clearTimeout(this.inputFlushTimer); this.inputFlushTimer = null;
       try { this.resize?.disconnect(); } catch (_) { /* frame already destroyed */ }

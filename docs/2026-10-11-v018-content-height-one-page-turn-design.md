@@ -28,54 +28,39 @@ See publicly documented PDF.js `ScrollMode.PAGE` and Zotero users' single-page-s
 
 ## Implementation design
 
-### Non-negotiable: zero visible un-fitted intermediate page
+### Immediate page navigation; no intervention in PDF.js drawing
 
-A naive reuse of the v0.1.7 navigation path **would** first let PDF.js show a new page
-at its previous zoom/scroll position, then correct the zoom and content center after
-a delayed detector result or the 500ms idle/refine loop. That flicker is not acceptable
-in v0.1.8's height/page-turn mode.
+Margin Fit is responsible only for the *target PDF page, fitted scale and content-centering
+offset*. PDF.js/Zotero remains fully responsible for the page's normal canvas/text/annotation
+rendering lifecycle.
 
-Instead make every navigation a **single visual transaction**:
+- **Turn immediately** when an accepted wheel notch, key press, page button or navigation
+  event occurs. Change the selected page at once; do not defer page switching until
+  content bounds are detected or PDF.js reports painting complete.
+- **Warm adjacent-page cache:** reuse precomputed safe content bounds and scale so the
+  new page is positioned correctly as part of the normal page switch. Avoid an
+  avoidable second zoom/recentering pass when the exact bounds are already known.
+- **Uncached page / long jump:** navigate immediately as well. Let the existing
+  detector calculate missing bounds asynchronously, then apply the content fit
+  when it becomes available. There may be a temporary difference in zoom/position
+  for an uncached page; never freeze navigation merely to prevent it.
+- **No painting-specific features:** do not hold the previous page, overlay a screenshot,
+  add a transition/placeholder/loading spinner, wait for \`pagerendered\`, intercept
+  PDF.js loading events, or introduce any custom strategy for slow PDF rendering.
+  If the computer needs time to draw, the reader behaves exactly as Zotero ordinarily
+  does.
+- **Keep input responsive:** distinguish gesture debouncing (needed to prevent
+  one touchpad inertia burst causing many turns) from render-dependent delays
+  (never allowed). Separate intentional wheel notches and key presses must not
+  be blocked by an ongoing PDF.js render.
+- **Stable state:** suppress only duplicate controller-generated fitting events;
+  preserve native PDF.js geometry/render behavior, text selection and annotations.
+  When a cached page has been fully positioned, it should not later jump because
+  of the legacy 500 ms idle recalculation. Uncached pages may align once after detection.
 
-1. **Preparation while the current page remains visible:** retain a per-document,
-   revision-aware exact safe content box for the next/previous PDF pages using the
-   existing serial prefetch; precompute the target `scale_p` for the current viewport,
-   page rotation and target bounds. This must happen **before** page selection, not
-   in the old `pagechanging → 75ms flush → 500ms refine` sequence.
-2. **Frame-atomic page switch (warm cache):** the page-turn handler cancels native
-   pixel scrolling, coalesces gestures, and synchronously applies the **target page,
-   scale and vertical content center**. Account for PDF.js setters that themselves
-   reposition the page: calculate/adjust the final scroll offset **after** its page DOM
-   is attached, before the browser's first paint. Use one layout measurement if
-   necessary, not a timer-driven corrective sequence. Avoid an `await` or another
-   visible frame between displaying the target page and its final transform/offset.
-   A new page with effectively unchanged zoom **must still be recentered**, unlike
-   the v0.1.7 continuous-reading path.
-3. **Cold-cache / long jump:** if exact target bounds or native page paint are not
-   ready, **do not expose** the raw target page. Keep the previous page visually
-   stable while preparing the target (or hold a lightweight previous-frame overlay
-   if the native single-page viewer must attach the target to render it). Commit the
-   target view only after safe bounds, final position and paint readiness are met.
-   A slight delay is preferable to showing blank paper then snapping, but impose
-   bounded latency and allow cancellation of obsolete page-turn requests. Only when
-   the boundary is genuinely unreliable should a deliberate, stable full-page fallback
-   be committed directly (not shown as an intermediate step before later cropping).
-4. **Preview cache is not render cache:** exact margin records permit immediate
-   geometry decisions; a newly visited page's actual PDF.js bitmap/text layers may
-   still be asynchronous. Distinguish these states in telemetry. If the native
-   `pagerendered` event occurs after the page swap, keep the previous visual until
-   the new page is ready without capturing a costly full-resolution screenshot
-   on every normal wheel event.
-5. **Single-writer, single-paint contract:** one controller owns the paging request;
-   `epoch` tokens suppress older detection/renderer completions; native page/
-   scale/scroll events produced by the commit are muted. No delayed recenter,
-   double zoom, old-page snapback, or visible flash of top/bottom paper margins.
-   Restore original PDF.js layout/gesture handling on Fit Width, OFF or unload.
-
-Benchmark both **turn latency** and **the first painted frame**. A turn counts as
-successful only if the first visible target-page frame has the safe content interval
-within the viewport; checking only the final settled position would miss this defect.
-Never compromise fidelity of original PDF canvas, text selection or annotations.
+Acceptance is based on **correct content fitting, prompt page-number response,
+no artificial rendering delays and no unnecessary duplicate positioning**; the
+plugin makes no guarantee about PDF.js paint completion time or special loading UI.
 
 **1. Mode lifecycle and isolation**
 
@@ -109,7 +94,7 @@ Reliable full-height ink fit is the success criterion; avoid clamping height by 
 - **Touchpad/pixel wheel** events require accumulated delta with a threshold and short gesture lock so a single inertia burst cannot accidentally flip 5–10 pages. Normalize `deltaMode`, with separate per-device policies and test both. Do not throw away intentionally separated wheel notches merely because they arrived quickly.
 - Ignore `ctrlKey` or `metaKey` zoom gestures, horizontal wheel (`deltaX`/Shift), and wheel events in nested selectable / scrollable UI (search, annotation editor, popover). Prevent interference with text selection and touch input.
 - Map Zotero's next/previous buttons, page-number input, arrow/PageUp/PageDown keys (where not editing text), TOC jumps, search jumps, and bookmark jumps to the *same* `showContentPage(p)` transaction. Do not rely exclusively on wheel. Keep native buttons and links functional.
-- Any change to physical page triggers immediate exact-page fit/centering, reusing cached bounds. Do **not** wait for the standard 500 ms prefetch idle delay before restoring vertical content alignment.
+- Every page change takes effect immediately. With cached bounds, fit/center immediately; without cached bounds, allow the ordinary PDF.js page change and asynchronously fit once the geometry is available. Never wait for the standard 500 ms idle window when a cached fit is already possible.
 - On manual zoom/pan beyond the content-fit policy, avoid trapping the user. Temporarily allow normal intra-page scrolling when zoom is manually changed, and resume strict content-page mode on explicit Fit Height (or define/retest an explicit page-exit policy). Never use an arbitrary auto-snapping timer to undo manual actions.
 
 **4. Stability and edge cases**
@@ -124,7 +109,7 @@ Reliable full-height ink fit is the success criterion; avoid clamping height by 
 ## Concrete acceptance tests
 
 1. A page with large *physical* top/bottom white margins: after Fit Height, only **one page exists in the rendered viewer**, content's entire protected `[t,b]` interval lies inside the viewport, blank outer margins are mostly offscreen, and canvas text/annotation DOM remains original.
-1a. **First-frame contract:** record/render a video or frame-by-frame test for a warm-cache 8→9→8 turn and a cold-cache distant jump. The **very first visible target-page frame** must already be content-fit and content-centered. Fail if a full-margin/old-scale target frame is visible even for one animation frame. For a slow uncached page, retain the previous page/transition overlay until the new view is ready; do not claim instant turn when it takes time to prepare.
+1a. **Immediate navigation contract:** test a cached 8-to-9-to-8 turn and an uncached long jump. Page number changes promptly for both; cached turns use known content bounds without a second delayed fit; uncached turns remain responsive and may align after the normal asynchronous boundary detection. Do not test for or impose any delay related to PDF.js painting.
 2. Three consecutive wheel detents advance exactly three pages; one reverse detent goes back exactly one page; trackpad swipe/inertia does not cascade unexpectedly.
 3. A page with virtually no margins, a short title page, a small score, a scanned-image page, and a rotated page each remain fully readable; fallback shows full page without cropping.
 4. Repeated switching 1→2→1→2, different page dimensions, and 30 rapid page turns never put page content above/below viewport or show two pages at once; re-centering after same-zoom turn is explicitly checked.

@@ -1,6 +1,11 @@
 /* Isolated Zotero idle indexer integration test. */
 const checks=[];
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function jsonlCache(file) {
+ const [header,...rows]=(await IOUtils.readUTF8(file)).trimEnd().split(String.fromCharCode(10))
+  .map(line=>JSON.parse(line));
+ return {...header,pages:Object.fromEntries(rows.map(([p,...box])=>[p,box]))};
+}
 function assert(v,m){if(!v)throw Error(m);checks.push(m);}
 async function until(fn,timeout=19000){const deadline=Date.now()+timeout;
  while(Date.now()<deadline){try{if(fn())return true;}catch(_){ }await sleep(110);}return false;}
@@ -33,7 +38,7 @@ async function run(){
   const indexed=Array.from(c.session.cache.keys()).sort((a,b)=>a-b);
   const storeFile=c.session.store.file;
   await c.session.store.flush();
-  const data=await IOUtils.readJSON(storeFile);
+  const data=await jsonlCache(storeFile);
   assert(data.algorithmVersion===1,'independent algorithmVersion 1 persisted');
   assert(Object.values(data.pages).every(b=>Array.isArray(b)&&b.length===4),'persisted page records contain only four coords');
   const currentPage=startPage;

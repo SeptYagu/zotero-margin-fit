@@ -52,9 +52,11 @@ test('unproven pattern and mixed graphic pages always retain full content bounds
 });
 test('four-coordinate disk cache strips transient folio analysis but preserves ink boundaries',async()=>{
  const disk=new Map();
- const io={readJSON:async key=>{if(!disk.has(key))throw Error('not found');return disk.get(key);},
-  writeJSON:async(key,val)=>{disk.set(key,JSON.parse(JSON.stringify(val)));},
-  makeDirectory:async()=>{}};
+ const io={exists:async key=>disk.has(key),
+  readUTF8:async key=>disk.get(key),
+  writeUTF8:async(key,val,{mode})=>{
+   disk.set(key,(mode==='appendOrCreate'?(disk.get(key)||''):'')+val);
+  },makeDirectory:async()=>{}};
  const path={profileDir:'zotero-test',join:(...p)=>p.join('/')};
  const timers={setTimeout,clearTimeout};
  const make=()=>new P.Store({io,path,timers,count:24,
@@ -65,7 +67,7 @@ test('four-coordinate disk cache strips transient folio analysis but preserves i
  assert.equal(rec.folio,undefined);
  assert.equal(rec.fastPath,undefined);
  const saved=disk.get(s.file);
- assert.deepEqual(saved.pages['7'],source.raw);
- saved.pages['7']=[-1,2,3,4];
- assert.equal((await make().load()).size,0);
+ assert.deepEqual(JSON.parse(saved.trimEnd().split(String.fromCharCode(10))[1]),[7,...source.raw]);
+ disk.set(s.file,saved+'[7,-1,2,3,4]'+String.fromCharCode(10));
+ assert.deepEqual((await make().load()).get(7).raw,source.raw);
 });

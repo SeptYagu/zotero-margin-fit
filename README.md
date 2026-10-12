@@ -6,6 +6,12 @@ Zotero PDF 阅读器的智能内容适应插件。保留原生 **Reset Zoom**，
 
 本项目依照 [需求文档](09-智能去白边阅读开关.md) 实现。当前正式版本为 **0.1.8**，使用 Zotero 私有阅读器接口。兼容范围限定为 Zotero 10.0.x。运行测试的具体版本、通过项和待测项见 [验证记录](docs/verification.md)。
 
+## v0.1.9 append-only boundary cache
+
+- Persist compact four-coordinate records to append-only JSONL; no repeated whole-book JSON rewrite.
+- Previously saved JSON caches are intentionally ignored and are not deleted. A page will be indexed again on the new version.
+- Preserve long-distance page-number Width Fit, foreground priority and idle book indexing.
+
 ## v0.1.8 content-height page mode and dirty scan support
 
 - Native one-page Fit Height mode with immediate page turns, content-fitting and native continuous-scroll restore.
@@ -59,7 +65,7 @@ npm test
 npm run build
 ```
 
-Official build: dist/zotero-margin-fit-0.1.8.xpi. Zotero automatic updates use the public feed once the GitHub Release XPI and SHA-256 have been verified.
+Development build: dist/zotero-margin-fit-0.1.9.xpi. Zotero automatic updates use the public feed once the GitHub Release XPI and SHA-256 have been verified.
 
 在安装 Zotero 的 Windows 电脑上运行真实阅读器回归：
 

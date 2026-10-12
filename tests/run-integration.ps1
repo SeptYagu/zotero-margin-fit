@@ -6,7 +6,7 @@ $projectPath = Split-Path $PSScriptRoot -Parent
 $driverPath = Join-Path $PSScriptRoot $DriverScript
 if (!(Test-Path -LiteralPath $driverPath -PathType Leaf)) { throw 'Test driver not found' }
 $expectedVersion = (Get-Content -LiteralPath (Join-Path $projectPath 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json).version
-$runDirectory = Join-Path $projectPath ('.test-harness\' + [guid]::NewGuid().ToString('N'))
+$runDirectory = Join-Path $env:LOCALAPPDATA ('Temp\ZoteroMarginFitTests\profiles\' + [guid]::NewGuid().ToString('N'))
 $profileDirectory = Join-Path $runDirectory 'profile'
 $dataDirectory = Join-Path $env:LOCALAPPDATA ('Temp\ZoteroMarginFitTests\' + (Split-Path $runDirectory -Leaf) + '\data')
 New-Item -ItemType Directory -Path $profileDirectory,$dataDirectory -Force | Out-Null

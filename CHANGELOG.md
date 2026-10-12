@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.9 ? 2026-10-12
+
+- Replace snapshot JSON boundary cache with append-only JSONL; cache reuse is still keyed by both PDF.js fingerprints and page count.
+- Intentionally abandon prior .json caches: all page bounds are recomputed lazily on first access and during cooperative idle scanning. Old files are ignored, not deleted.
+- Keep four coordinates per page, distant-page-number Width Fit, small batched writes, and the independent algorithmVersion 1.
+- Restore uncommitted records after a failed append; reject unreadable or incompatible existing files rather than overwriting them.
+- Unit and Node compatibility checks passed; native Zotero 10.0.6 integration not yet confirmed due a debugger harness failure (ECONNRESET). See docs/2026-10-12-v019-jsonl-implementation.md.
+
 ## 0.1.8 — 2026-10-12
 
 - Native Fit Height PAGE-mode page turning, cached first-frame fitting, controlled touchpad wheel behavior, and restoration of previous continuous scroll mode.

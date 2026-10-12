@@ -1,5 +1,10 @@
 /* 0.1.4 dedicated fast-path and disk-cache end-to-end checks. */
 const checks=[],sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function jsonlCache(file) {
+ const [header,...rows]=(await IOUtils.readUTF8(file)).trimEnd().split(String.fromCharCode(10))
+  .map(line=>JSON.parse(line));
+ return {...header,pages:Object.fromEntries(rows.map(([p,...box])=>[p,box]))};
+}
 const assert=(ok,message)=>{if(!ok)throw Error(message);checks.push(message);};
 function startup(){
  if(!Services.prefs.getBoolPref('marginfit.integrationProfile',false))return;
@@ -71,7 +76,7 @@ async function run(){
     'v0.1.6 retains the numbered footer in native Height Fit: '+folioScale+' vs '+fullScale);
   numbered.c.session.folioPattern=folioModel;
   await numbered.c.session.store.flush();
-  const numberedDisk=await IOUtils.readJSON(numbered.c.session.store.file);
+  const numberedDisk=await jsonlCache(numbered.c.session.store.file);
   const numberedBox=numberedDisk.pages[String(folioTarget)];
   assert(Array.isArray(numberedBox) && numberedBox.length===4 &&
     Math.abs(numberedBox[0]-folioExact.folio.body[0])<.01 &&
@@ -101,7 +106,7 @@ async function run(){
     'true Zotero width fit enlarges staff body after excluding isolated left folio');
   mr.widthFitRaw=backup;
   await synthetic.c.session.store.flush();
-  const bodyCache=await IOUtils.readJSON(synthetic.c.session.store.file);
+  const bodyCache=await jsonlCache(synthetic.c.session.store.file);
   const optimized=bodyCache.pages['5'];
   assert(Array.isArray(optimized) && optimized.length===4 &&
     Math.abs(optimized[0]-backup[0])<.01 && Math.abs(optimized[2]-backup[2])<.01 &&

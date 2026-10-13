@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.17 - 2026-10-12
+
+- Add one native three-state spread selector immediately after Detect Margins, with single outlined paper, odd filled-left/outlined-right, and even outlined-left/filled-right icons.
+- Reflect Zotero View-menu settings without another persistent preference or custom renderer.
+- Fit Height PageDown/PageUp now steps whole native spreads, including special cover and final-page grouping.
+- Verify no regression to Width/Height Fit, annotations, native continuous scrolling, persistent caches and all-open background indexing.
+
 ## 0.1.16 ? 2026-10-12
 
 - Fix cross-page Width Fit: automatically re-center detected content after navigating to a different PDF page, while keeping manual horizontal movement within the same page authoritative. The original Berger Musica Ficta page 15 previously showed ~97px left/right imbalance after normal navigation; now ~0.8px, without a second button click.

@@ -4,13 +4,15 @@
 
 MarginFit 隐藏 Zotero 原生 Reset Zoom，并在同一位置提供 **适合宽度、适合高度、识别边界** 三个按钮。它保留完整 PDF 的连续滚动、页内微调和阅读位置。
 
-## Current release: v0.1.16
+## Current release: v0.1.17
 
-The original Zotero Reset Zoom button is hidden while MarginFit runs; it is restored when the add-on is disabled or uninstalled. The plugin supplies its own **Fit Width**, **Fit Height** and **Detect Margins** controls in the original toolbar location.
+The original Zotero Reset Zoom button is hidden while MarginFit runs; it is restored when the add-on is disabled or uninstalled. The plugin supplies its own **Fit Width**, **Fit Height**, **Detect Margins** and a native **Page Spreads** button in the original toolbar location.
+
+The rightmost **Page Spreads** button cycles Zotero's built-in PDF display: one outlined page (single), filled-left/outlined-right (Odd Spreads, 1-2, 3-4...), and outlined-left/filled-right (Even Spreads, cover alone then 2-3, 4-5...). Changing the native View-menu setting also updates the button.
 
 Fit Width and Fit Height are mutually exclusive **ON/OFF toggles**. Click the active fit again to turn it off without altering the current zoom or scroll position. Switching to the other mode activates that fit. With Detect Margins disabled, the fit buttons use the original Zotero page-width/page-height functions.
 
-When Fit Height is active, Page Down / Page Up step by one PDF page even with Detect Margins OFF (using native page boundaries); with detection ON they align the actual content. When detected-content Fit Height is active, the entire PDF remains in native continuous layout, including the full-document scrollbar. Small wheel/touchpad movements and Up/Down arrows remain free within a page. Crossing into a different page aligns the newly visible page to its content. Page Down / Page Up step one detected-content page at a time; Windows main-window key routing is supported from v0.1.14. Fit Width also re-centers the content once when entering a different page, without undoing later manual adjustments on that page.
+When Fit Height is active, Page Down / Page Up step by one PDF page even with Detect Margins OFF (using native page boundaries); with detection ON they align the actual content. When detected-content Fit Height is active, the entire PDF remains in native continuous layout, including the full-document scrollbar. Small wheel/touchpad movements and Up/Down arrows remain free within a page. Crossing into a different page aligns the newly visible page to its content. Page Down / Page Up step one *native page spread* at a time in Fit Height (a single page in Single mode, whole paired spreads in Odd/Even mode). Windows main-window key routing is supported from v0.1.14. Fit Width also re-centers the content once when entering a different page, without undoing later manual adjustments on that page.
 
 ## Detection and cache
 
@@ -33,6 +35,7 @@ Requires Node.js 20+ for build and unit testing, and Zotero 10.0.x for native in
 npm test
 npm run build
 npm run test:integration
+npm run test:spread
 npm run test:ui
 npm run test:height
 npm run test:background

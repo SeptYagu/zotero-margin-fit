@@ -1,6 +1,6 @@
 {
   "name": "zotero-margin-fit",
-  "version": "0.1.17pre2",
+  "version": "0.1.17",
   "private": true,
   "description": "Smart content fitting for the Zotero PDF reader",
   "license": "MIT",

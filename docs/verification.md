@@ -1,6 +1,15 @@
-# MarginFit ? Current verification (v0.1.16)
+# MarginFit ? Current verification (v0.1.17)
 
 The older v0.1.2 records remain archived in [historical verification](verification-v0.1.2-legacy.md). This page is maintained for the CURRENT release.
+
+## 0.1.17 validation (Windows Zotero 10.0.6)
+
+- Owner tested and approved private candidate functionality and classic paper icons.
+- 102/102 Node unit tests; native PDF.js 0/1/2 spread grouping, four controls, View-menu synchronization and odd/even icon fill verified in disposable profiles.
+- Windows OS-level PageDown/PageUp: Odd Spreads 3 -> 5 -> 3, Even Spreads 2 -> 4 -> 2. Native continuous scrollbar stays intact.
+- Native UI, Height Fit, default integration, cached reopen, all-open background indexing, annotation safety, Fit OFF and active-reader priority regressions passed.
+- Limits: Windows test only, OS-injected keys rather than all physical keyboards; extremely mismatched page sizes and narrow windows were not optimized for exact dual-page fitting.
+- See [private development report](2026-10-12-native-spread-private-preview.md).
 
 ## 0.1.16 validation (Windows Zotero 10.0.6)
 

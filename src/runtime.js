@@ -887,15 +887,31 @@ var MarginFitRuntime = (() => {
       const width = button("width","M3 5v14M21 5v14M5 12h14M9 8l-4 4 4 4M15 8l4 4-4 4");
       const height = button("height","M5 3h14M5 21h14M12 5v14M8 9l4-4 4 4M8 15l4 4 4-4");
       const toggle = button("detect","M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 7h10v10H7z");
-      // Native three-state spread selector; label shows the current physical pairing.
+      // Classic paper icon: one outline, or two pages with odd/even filled alternately.
       const spread=doc.createElement("button");
       spread.type="button"; spread.dataset.marginfit="spread"; spread.className="toolbar-button";
-      spread.style.minWidth="37px";spread.style.padding="3px";spread.style.fontSize="11px";
+      const paper=doc.createElementNS("http://www.w3.org/2000/svg","svg");
+      paper.setAttribute("viewBox","0 0 24 24");
+      paper.setAttribute("aria-hidden","true");
+      for (const [name,outline,fold] of [
+        ["single","M7 2.5H14L17 5.5V21H7Z","M14 2.5V5.5H17"],
+        ["left","M2 4H8L11 7V20H2Z","M8 4V7H11"],
+        ["right","M13 4H19L22 7V20H13Z","M19 4V7H22"]
+      ]) {
+        const sheet=doc.createElementNS(paper.namespaceURI,"path");
+        sheet.setAttribute("d",outline);
+        sheet.setAttribute("data-sheet",name);
+        const corner=doc.createElementNS(paper.namespaceURI,"path");
+        corner.setAttribute("d",fold);
+        corner.setAttribute("data-fold",name);
+        paper.append(sheet,corner);
+      }
+      spread.append(paper);
       width.addEventListener("click", () => this.clickMode(reader,"width"));
       height.addEventListener("click", () => this.clickMode(reader,"height"));
       toggle.addEventListener("click", () => this.Services.prefs.setBoolPref(PREF,!this.enabled()));
       spread.addEventListener("click", () => this.cycleSpread(reader));
-      bar.append(style,width,height,spread,toggle);
+      bar.append(style,width,height,toggle,spread);
       if (!this.positionToolbar(doc,bar,append)) return;
       this.removeDuplicateToolbars(doc,bar);
       this.toolbars.set(reader,bar);
@@ -932,8 +948,16 @@ var MarginFitRuntime = (() => {
         const mode=this.controllers.get(view)?.viewer?.spreadMode ??
           view?._iframeWindow?.PDFViewerApplication?.pdfViewer?.spreadMode ?? 0;
         if(spread) {
-          spread.textContent=["1","1|2","2|3"][mode] || "1";
           spread.dataset.spreadMode=String(mode);
+          for (const part of ["single","left","right"]) {
+            const shown=mode===0 ? part==="single" : part!=="single";
+            const solid=(mode===1 && part==="left") || (mode===2 && part==="right");
+            const sheet=spread.querySelector('[data-sheet="'+part+'"]');
+            const fold=spread.querySelector('[data-fold="'+part+'"]');
+            sheet?.setAttribute("display",shown?"inline":"none");
+            sheet?.setAttribute("fill",solid?"currentColor":"none");
+            fold?.setAttribute("display",shown&&!solid?"inline":"none");
+          }
           spread.title=t.spread[mode] || t.spread[0];
           spread.setAttribute("aria-label",spread.title);
           spread.setAttribute("aria-pressed",String(mode!==0));

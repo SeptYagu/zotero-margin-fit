@@ -16,25 +16,50 @@ async function run(){try{
  assert(await until(()=>!!doc.querySelector('.marginfit-toolbar [data-marginfit="spread"]')),"New native spread button visible next to fit controls");
  const b=doc.querySelector('.marginfit-toolbar [data-marginfit="spread"]');
  const bar=doc.querySelector('.marginfit-toolbar');
- assert(bar.querySelectorAll('button').length===4,"Toolbar contains Width, Height, Spread and Detect controls");
+ assert(bar.querySelectorAll('button').length===4,"Toolbar contains Width, Height, Detect and Spread controls");
+ assert(b.previousElementSibling?.dataset.marginfit==="detect" && bar.lastElementChild===b,
+   "Paper spread icon is immediately to the right of Detect Margins");
+ assert(b.querySelector("svg")?.getAttribute("aria-hidden")==="true",
+   "Paper icon is decorative while button retains an accessible label");
  let initial=v.spreadMode;
  details.states=[];
- function save(mark){const state={mark,spread:v.spreadMode,label:b.textContent,title:b.title,pressed:b.getAttribute('aria-pressed'),
-   spreadGroups:[...v.viewer.querySelectorAll('.spread')].slice(0,3).map(node=>[...node.querySelectorAll('.page')].map(n=>Number(n.dataset.pageNumber)))};
+ function save(mark){
+   const sheet=part=>{const node=b.querySelector('[data-sheet="'+part+'"]');
+     return {shown:node?.getAttribute("display")!=="none",fill:node?.getAttribute("fill")};};
+   const state={mark,spread:v.spreadMode,icon:{single:sheet("single"),left:sheet("left"),right:sheet("right")},
+     title:b.title,pressed:b.getAttribute('aria-pressed'),
+     spreadGroups:[...v.viewer.querySelectorAll('.spread')].slice(0,3).map(node=>[...node.querySelectorAll('.page')].map(n=>Number(n.dataset.pageNumber)))};
    details.states.push(state);return state;}
  v.spreadMode=0;await sleep(180);plugin.updateButtons();save('single');
- assert(b.textContent==='1' && b.dataset.spreadMode==='0',"Single mode state shown as 1");
+ assert(b.textContent==="" && b.dataset.spreadMode==="0" &&
+   details.states.at(-1).icon.single.shown &&
+   details.states.at(-1).icon.single.fill==="none" &&
+   !details.states.at(-1).icon.left.shown && !details.states.at(-1).icon.right.shown,
+   "Single-page mode shows one hollow sheet, no digits");
  b.click();await sleep(230);save('odd');
- assert(v.spreadMode===1 && b.textContent==='1|2',"First click selects native Odd Spreads");
+ assert(v.spreadMode===1 && b.dataset.spreadMode==="1" &&
+   details.states.at(-1).icon.left.fill==="currentColor" &&
+   details.states.at(-1).icon.right.fill==="none" &&
+   details.states.at(-1).icon.left.shown && details.states.at(-1).icon.right.shown &&
+   !details.states.at(-1).icon.single.shown,
+   "Odd Spreads icon uses filled left sheet and hollow right sheet");
  assert(details.states.at(-1).spreadGroups[0].join(',')==='1,2',"Odd spreads physically render 1-2 together");
  b.click();await sleep(230);save('even');
- assert(v.spreadMode===2 && b.textContent==='2|3',"Second click selects native Even Spreads");
+ assert(v.spreadMode===2 && b.dataset.spreadMode==="2" &&
+   details.states.at(-1).icon.left.fill==="none" &&
+   details.states.at(-1).icon.right.fill==="currentColor" &&
+   details.states.at(-1).icon.left.shown && details.states.at(-1).icon.right.shown,
+   "Even Spreads icon uses hollow left sheet and filled right sheet");
  assert(details.states.at(-1).spreadGroups[0].join(',')==='1' &&
  details.states.at(-1).spreadGroups[1].join(',')==='2,3',"Even spreads physically render cover alone then 2-3");
  b.click();await sleep(230);save('single-again');
- assert(v.spreadMode===0 && b.dataset.spreadMode==='0',"Third click returns native Single mode");
+ assert(v.spreadMode===0 && b.dataset.spreadMode==='0' &&
+   details.states.at(-1).icon.single.shown && details.states.at(-1).icon.single.fill==="none",
+   "Third click restores single hollow sheet");
  v.spreadMode=2;
- assert(await until(()=>b.dataset.spreadMode==='2'),"Native menu changes update button state through PDF.js event bus");
+ assert(await until(()=>b.dataset.spreadMode==='2' &&
+   b.querySelector('[data-sheet="right"]')?.getAttribute("fill")==="currentColor"),
+   "Native menu changes update the matching paper silhouette through PDF.js event bus");
  // Height mode and Detect enabled: native spread group navigation should never
  // reduce the viewer to single-page PAGE layout.
  c.viewer.currentPageNumber=2;await sleep(200);

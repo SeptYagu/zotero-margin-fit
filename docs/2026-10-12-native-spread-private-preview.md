@@ -1,7 +1,7 @@
 # MarginFit native spread selector: private development preview
 
 Status: PRIVATE TEST CANDIDATE. Not published. Based on the public v0.1.16.
-This isolated branch uses a distinct 0.1.17pre1 manifest identity to avoid
+This isolated branch uses a distinct 0.1.17pre2 manifest identity to avoid
 confusing the experimental build with the stable version. The public release,
 official tags, main branch, and main/updates.json remain untouched.
 
@@ -53,3 +53,15 @@ representative books, review page visibility on a narrow window, and obtain
 explicit owner approval for a specified stable release. Do NOT push a normal
 GitHub Release, a publish/v* staging branch, any release tag, or the public
 automatic-update feed without approval.
+
+
+## Private UI adjustment (pre2)
+
+- Moved the native spread-mode toggle immediately **after Detect Margins**.
+- Replaced numeric 1 / 1|2 / 2|3 labels with classic paper-page SVGs.
+- Single page: one hollow page; Odd Spreads: filled left + outline right;
+  Even Spreads: outline left + filled right.
+- Icons inherit toolbar colors and keep bilingual accessible labels and
+  synchronization when users choose spread mode from Zotero's View menu.
+- Native visual assertions and existing Width/Height/navigation suites pass.
+- Local XPI stays in the project's existing dist directory; no release is triggered.

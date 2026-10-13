@@ -12,15 +12,14 @@ approves a particular new version for public release**.
 
 ## 2. Default: develop, test, report - do not publish
 
-- Implement functional changes on isolated development branches/worktrees.
-- Build clearly labeled **private test XPI** files when useful, and validate
-  them in isolated Zotero profiles. Private testing is NOT a public Release.
+- Develop in the normal local project workspace. A separate branch or worktree is not required for each private build; preserve any existing unrelated local changes.
+- Build private test XPI files into the existing project `dist/` directory, and validate them in isolated Zotero profiles. Private testing is NOT a public Release.
 - Report the reproducer, changes, observed behavior, tests, known limitations,
   performance and compatibility impact, and recommended release grouping.
 - **Do not automatically** bump the public stable version; push release tags;
   create normal Releases or public prereleases; push to the publish/v* branch
-  (which triggers a public Release); modify main/updates.json; or merge
-  unapproved functional changes into main.
+  (which triggers a public Release); modify main/updates.json; or push
+  unapproved functional changes to the public main branch.
 - Feature completion, passing tests, a user's request to test/continue, or
   silence are not authorization to publish. Prior blanket directions to
   publish each working iteration are hereby superseded.
@@ -45,7 +44,7 @@ Differentiate OS-injected keyboard events from actual physical keyboard checks.
 
 ## 4. Publication after owner approval only
 
-Only after explicit approval: finalize version and reviewed merge, validate
+Only after explicit approval: finalize version and reviewed changes, validate
 XPI SHA-256, create the matching tag, push the publish/v* staging branch,
 verify a real publicly visible normal GitHub Release, then update the public
 main/updates.json feed to that exact published XPI and verify public hash/URL.

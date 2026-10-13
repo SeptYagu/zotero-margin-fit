@@ -35,7 +35,7 @@ These principles may be changed only after explicit approval from the project ow
 16. A review must identify exact code locations, confidence/evidence, user impact, suggested **minimum** fix, and regression/performance test. Separate confirmed bugs from optional ideas.
 17. Validate changes with focused tests first, then relevant isolated Zotero integration and representative PDF checks. Report what was **not** tested, especially active CPU cost and real reader behavior.
 18. Do not create work merely to make code look cleaner, cover an improbable case, or increase test counts. If benchmarks show negligible gains, **leave the existing code alone**.
-19. Obtain owner approval before substantial architecture changes or cache-format migrations. Documentation-only changes do not require a new plugin release; completed functional iterations follow `docs/RELEASE-POLICY.md`.
+19. Obtain owner approval before substantial architecture changes or cache-format migrations. Documentation-only changes do not require a plugin release. **Functional changes stay as private candidates until the owner explicitly approves the public version; tests passing do not authorize publication.** Follow docs/RELEASE-POLICY.md.
 
 ## Correction to the first v0.1.8 review
 

@@ -1,13 +1,63 @@
-# MarginFit version and release policy
+# MarginFit release and update policy
 
-Adopted 2026-10-12 per project owner.
+Updated 2026-10-12, after the author publicly announced MarginFit on the Zotero forum.
+**This replaces the earlier automatic quick-iteration release policy.**
 
-1. When an iteration is functionally complete and its available acceptance tests pass, increment the plugin version, ship a **normal public GitHub Release** with the corresponding XPI, and update Zotero's public `main/updates.json` to the published asset's real SHA-256. Do not leave completed work solely on a development branch or unreleased draft.
-2. Keep each iteration testable through Zotero's existing automatic add-on update mechanism; offer a direct GitHub XPI link. Never silently install into a user's production Zotero profile or modify originals.
-3. Publish in order: unit tests, relevant native isolated Zotero tests and representative real PDF checks where the harness runs, deterministic build/hash, tag, published asset verification, update feed, optional native update smoke test, and final verified release note.
-4. Tests which cannot complete must be explicitly named in release notes, never marked passed. A limited test release can go forward for user feedback when its risks are disclosed, existing smoke tests have passed earlier, no known critical blocker remains, and release is specifically intended for rapid user testing.
-5. Preserve deliberate long-distance page-number Width Fit, manual pan, low-cost sparse sampling, and per-document persistent four-coordinate caching. Maintain v0.1.7 historical release intact.
-6. Reports of bugs in a newly published version form the next iteration rather than preventing the user from obtaining the current tested improvements.
-7. All reviews, changes and optimization proposals must comply with [mandatory engineering principles](ENGINEERING-PRINCIPLES.md). Unverified hypotheses are not release requirements; preserve simple, measured solutions.
+## 1. Public users come first
 
-Public auto-update feed has to refer to an **already available** XPI; never move the feed ahead of GitHub's published asset.
+MarginFit now has external users. A developer's convenience does **not** justify
+publishing every tested change to everyone. The last approved public Release
+and its updates.json feed remain stable until the project owner **explicitly
+approves a particular new version for public release**.
+
+## 2. Default: develop, test, report - do not publish
+
+- Implement functional changes on isolated development branches/worktrees.
+- Build clearly labeled **private test XPI** files when useful, and validate
+  them in isolated Zotero profiles. Private testing is NOT a public Release.
+- Report the reproducer, changes, observed behavior, tests, known limitations,
+  performance and compatibility impact, and recommended release grouping.
+- **Do not automatically** bump the public stable version; push release tags;
+  create normal Releases or public prereleases; push to the publish/v* branch
+  (which triggers a public Release); modify main/updates.json; or merge
+  unapproved functional changes into main.
+- Feature completion, passing tests, a user's request to test/continue, or
+  silence are not authorization to publish. Prior blanket directions to
+  publish each working iteration are hereby superseded.
+
+## 3. Release review and explicit approval
+
+Before any public release, present: the intended version, user-visible changes,
+test evidence, upgrade compatibility, outstanding risks, and draft notes.
+**Ask for the author's explicit approval to publish THAT version.**
+
+Minimum review for the affected areas:
+1. Unit tests, isolated native Zotero 10 integration suites, regression tests
+   for toolbar, width/height, page keys, cache, all-open indexing, and annotations.
+2. Representative real PDFs (including previously problematic scans/mixed sizes)
+   for changed detection, crop, or page positioning logic.
+3. No unexpected manual-position override, lost content, or significant
+   CPU/memory/latency regression. Disclose untested platforms and hardware.
+4. Installation/update from the current public stable version, packaging and
+   manifest correctness, and concise release notes written for forum users.
+
+Differentiate OS-injected keyboard events from actual physical keyboard checks.
+
+## 4. Publication after owner approval only
+
+Only after explicit approval: finalize version and reviewed merge, validate
+XPI SHA-256, create the matching tag, push the publish/v* staging branch,
+verify a real publicly visible normal GitHub Release, then update the public
+main/updates.json feed to that exact published XPI and verify public hash/URL.
+Communicate relevant release changes to the community as appropriate.
+
+A reported bug may warrant urgent work, but it still does not authorize
+silently distributing an unapproved automatic update.
+
+## 5. Preserve engineering constraints
+
+Follow mandatory ENGINEERING-PRINCIPLES.md. Keep faraway folio width logic,
+content-aware/physical-page navigation, manual positioning, conservative
+and efficient detection, persistent PDF cache, and one-worker all-open indexing.
+Do not invalidate stored caches without measured justification and approval.
+Documentation-only policy changes do not require a plugin version bump.

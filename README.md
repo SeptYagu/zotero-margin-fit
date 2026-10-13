@@ -1,62 +1,124 @@
 # MarginFit
 
-**Smart content fitting and persistent margin detection for Zotero 10 PDF readers.**
+**Read the PDF content, not the margins.**
 
-MarginFit 隐藏 Zotero 原生 Reset Zoom，并在同一位置提供 **适合宽度、适合高度、识别边界** 三个按钮。它保留完整 PDF 的连续滚动、页内微调和阅读位置。
+MarginFit is a plugin for the Zotero 10 PDF reader. It detects excessive or uneven page margins, fits the actual content to your window, makes page-by-page reading easier, and brings Zotero's native single-page / two-page switch into the reader toolbar.
 
-## Current release: v0.1.17
+**[Download the latest release](https://github.com/SeptYagu/zotero-margin-fit/releases/latest)** · **[Report an issue](https://github.com/SeptYagu/zotero-margin-fit/issues)** · **[中文说明](#中文说明)**
 
-The original Zotero Reset Zoom button is hidden while MarginFit runs; it is restored when the add-on is disabled or uninstalled. The plugin supplies its own **Fit Width**, **Fit Height**, **Detect Margins** and a native **Page Spreads** button in the original toolbar location.
+## Features
 
-The rightmost **Page Spreads** button cycles Zotero's built-in PDF display: one outlined page (single), filled-left/outlined-right (Odd Spreads, 1-2, 3-4...), and outlined-left/filled-right (Even Spreads, cover alone then 2-3, 4-5...). Changing the native View-menu setting also updates the button.
+### 1. Smart margin detection
 
-Fit Width and Fit Height are mutually exclusive **ON/OFF toggles**. Click the active fit again to turn it off without altering the current zoom or scroll position. Switching to the other mode activates that fit. With Detect Margins disabled, the fit buttons use the original Zotero page-width/page-height functions.
+Many PDFs have large white margins or inconsistent content positions, making the actual text appear too small. MarginFit finds the content boundaries and uses them to fit the view. It works with many text-based and scanned PDFs, and takes a conservative approach when a page cannot be recognized reliably.
 
-When Fit Height is active, Page Down / Page Up step by one PDF page even with Detect Margins OFF (using native page boundaries); with detection ON they align the actual content. When detected-content Fit Height is active, the entire PDF remains in native continuous layout, including the full-document scrollbar. Small wheel/touchpad movements and Up/Down arrows remain free within a page. Crossing into a different page aligns the newly visible page to its content. Page Down / Page Up step one *native page spread* at a time in Fit Height (a single page in Single mode, whole paired spreads in Odd/Even mode). Windows main-window key routing is supported from v0.1.14. Fit Width also re-centers the content once when entering a different page, without undoing later manual adjustments on that page.
+**The original PDF is never cropped, rewritten, or modified.**
 
-## Detection and cache
+### 2. One-click Fit Width / Fit Height
 
-- The visible page is detected first, followed by its immediate neighbors. The sparse 560-pixel-long-edge raster detector and reliable text geometry provide four content edges.
-- Text-only PDF pages may use a strict drawing-operator allowlist to avoid unnecessary rasterization. Complex scans, graphics, dirty borders and uncertain pages use conservative fallbacks.
-- Fit Width uses a **16 PDF-unit safety margin**, while Fit Height uses a **smaller 8 PDF-unit top/bottom margin**, preserving printed page numbers where needed. An identified faraway folio may be excluded from **width** fitting while the full vertical content extent is retained.
-- A compact append-only **JSONL** cache stores four page coordinates, keyed by PDF.js fingerprints and page count. Older snapshot JSON caches are intentionally ignored without migration.
-- The one shared background worker **finishes the currently active PDF first**, then automatically indexes other still-open PDFs until all are cached. Changing the active PDF preempts other scanning. Hidden PDF rasterization uses non-RAF print intent while protecting display-only annotations. Fit Width/Height OFF does not stop caching; the Detect Margins master switch does.
-- No OCR, network analysis, PDF-content rewriting or annotation-coordinate changes.
+- **Fit Width:** enlarge detected content to fill the available reading width.
+- **Fit Height:** fit detected content vertically for page-by-page reading.
+- **Click the selected fit button again to turn it off** without resetting your position. Selecting the other button switches modes.
+- Turn **Detect Margins** off to use Zotero's original page-width / page-height fitting.
+
+MarginFit avoids repeated tiny adjustments between similar pages and respects manual movement within the current page.
+
+### 3. Page-by-page navigation
+
+With **Fit Height** selected, **Page Down / Page Up** moves one page or one complete two-page spread:
+
+- **Single Page:** 1 → 2 → 3 → 4.
+- **Odd Spreads:** 1–2 → 3–4 → 5–6.
+- **Even Spreads:** cover page 1 → 2–3 → 4–5.
+
+With Detect Margins **on**, the navigation aligns detected content. With detection **off**, it follows the original page boundaries. The PDF remains continuously scrollable: wheel, touchpad, arrow keys and the full-document scrollbar still work.
+
+### 4. Easy access to Zotero's built-in two-page layouts
+
+The **Page Spreads** button uses Zotero's **existing View-menu layouts**, not a custom renderer.
+
+| Paper icon | Layout | Page grouping |
+| --- | --- | --- |
+| One outlined sheet | Single Page | 1, 2, 3, 4… |
+| Filled left + outlined right | Odd Spreads | 1–2, 3–4, 5–6… |
+| Outlined left + filled right | Even Spreads | 1 alone, then 2–3, 4–5… |
+
+Click the paper icon to cycle through the three states. Changing the layout in Zotero's **View** menu also updates this button.
+
+## The four toolbar buttons
+
+From left to right:
+
+1. **Fit Width** — fit content horizontally.
+2. **Fit Height** — fit content vertically and enable one-page / one-spread navigation.
+3. **Detect Margins** — switch smart boundary detection on or off.
+4. **Page Spreads** — cycle Zotero's native Single / Odd / Even modes.
+
+The plugin replaces Zotero's Reset Zoom control while active and restores it when disabled or uninstalled.
 
 ## Installation
 
-Get the current XPI from [GitHub Releases](https://github.com/SeptYagu/zotero-margin-fit/releases), then use Zotero **Tools → Plugins → Install Add-on From File**. Existing installations use Zotero's automatic update feed at `updates.json`. The project targets Zotero 10.0.x private reader interfaces.
+1. Download the latest **.xpi** from [GitHub Releases](https://github.com/SeptYagu/zotero-margin-fit/releases/latest).
+2. Open Zotero → **Tools → Plugins**.
+3. In the plugin manager, select **Install Add-on From File** and choose the downloaded XPI.
+4. Open a PDF. The four buttons will appear in its toolbar.
 
-## Build and verification
+Existing installations can receive approved releases through Zotero's plugin update mechanism.
 
-Requires Node.js 20+ for build and unit testing, and Zotero 10.0.x for native integration:
+## Compatibility and limitations
 
-```sh
-npm test
-npm run build
-npm run test:integration
-npm run test:spread
-npm run test:ui
-npm run test:height
-npm run test:background
-npm run test:cache
-npm run test:active
-npm run test:all-open
-npm run test:annotation
-npm run test:fit-off-cache
-```
+- **Zotero:** 10.0.5–10.0.x. Tested primarily with Zotero 10.0.6 on Windows; macOS and Linux are not yet fully verified.
+- **PDF quality:** Scanned pages, unusual dark edges or irregular layouts may require conservative boundary detection.
+- **Two-page height fitting:** Narrow windows or very different adjacent page sizes may prevent both pages from fitting fully at the same time.
+- **Privacy and originals:** No OCR, network analysis, PDF rewriting or annotation-coordinate changes.
 
-Native tests create **disposable Zotero profiles** and import generated PDF copies. They do not modify your production Zotero database or PDF files.
+MarginFit caches detected page boundaries locally to speed up future reading. After analyzing the active document, it can also analyze other currently open PDFs in the background, without changing what you are viewing.
 
-The OS keyboard-routing test is `tests/v0114-os-key-input.js`. It requires sending real operating-system Page Down / Arrow Down / Page Up inputs to its *isolated test Zotero window* during the test; ordinary synthetic JavaScript events do not cover Firefox's main-window handling. Physical hardware devices beyond that input test remain a separate manual check.
+## 中文说明
 
-See [current architecture](docs/architecture.md), [verification summary](docs/verification.md), [release policy](docs/RELEASE-POLICY.md), [engineering principles](docs/ENGINEERING-PRINCIPLES.md), and the [v0.1.15 restored all-open indexing report](docs/2026-10-12-v0115-all-open-background-indexing.md).
+**MarginFit：智能去白边、适合宽度／高度、整页翻页，以及原生单双页切换。**
 
-## A/B decisions (v0.1.14)
+很多 PDF 文献留白过大，或各页的正文位置不一致，导致文字显示得比较小。MarginFit 自动检测正文边界，充分利用阅读器空间。插件只调整显示方式，**不会修改原始 PDF 或批注**。
 
-- Six-page odd/even boundary prediction: **not enabled**. Independent raster-reference checking found predicted crop boxes outside the 16-unit safety allowance on some unseen pages.
-- Raster-first on mixed graphics/text pages: **not enabled globally**. Measured gains for complex pages did not justify removing the very fast pure-text path; page classification needs its own safely measurable gate.
+### 三项核心阅读功能
 
-Dated design plans, historical tests, and `CHANGELOG.md` are archives of how the product evolved, not definitions of the current UI.
+- **智能去白边：** 检测页面实际内容边界，减少多余留白。识别不可靠时保守处理，避免遮挡正文。
+- **智能适合宽度／高度：** 一键按正文宽度或高度缩放；再次点击当前模式即可关闭。关闭“识别边界”后，仍可使用 Zotero 原生适配。
+- **智能整页翻页：** 开启“适合高度”后，使用 **Page Down / Page Up** 一次翻一页，双页模式下一次翻一组。开启识别边界时对齐正文，关闭时对齐原始页面；仍然可以在页内自由滚动。
 
-Licensed under MIT.
+### 四个工具栏按钮
+
+从左到右是 **适合宽度 → 适合高度 → 识别边界 → 单双页切换**。
+
+最右侧的纸张图标可以直接切换 Zotero 本来就有的三种阅读布局：
+
+- **单页：** 一张空心纸，每次翻一页。
+- **奇数页跨页：** 左实心、右空心，1–2、3–4、5–6……
+- **偶数页跨页：** 左空心、右实心，封面第 1 页单独显示，然后 2–3、4–5……
+
+双页模式下，**按一次 Page Down / Page Up 就翻过整组两页**，不需要按两次。在 Zotero **View（视图）** 菜单切换布局时，图标也会同步更新。
+
+### 安装与兼容性
+
+从 [最新版本下载页面](https://github.com/SeptYagu/zotero-margin-fit/releases/latest) 下载 **.xpi** 安装包，在 Zotero 的 **Tools（工具）→ Plugins（插件）→ 从文件安装插件** 中安装，打开 PDF 即可使用。
+
+支持 **Zotero 10.0.5–10.0.x**，主要在 Windows 上测试。扫描杂线、背景色和不规则页面可能影响识别；窗口过窄或双页尺寸差异较大时，两页内容不一定能同时完整显示。
+
+## Development
+
+Building and unit tests require Node.js 20+. Native integration tests require Zotero 10 and use disposable test profiles.
+
+| Task | Command |
+| --- | --- |
+| Unit tests | npm test |
+| Build local XPI | npm run build |
+| Native reader checks | npm run test:integration |
+| Spread navigation | npm run test:spread |
+| Toolbar | npm run test:ui |
+| Height / page navigation | npm run test:height |
+
+Further native scripts cover the persistent cache, background indexing and annotations.
+
+See [Architecture](docs/architecture.md), [Verification](docs/verification.md), [Changelog](CHANGELOG.md) and [Release policy](docs/RELEASE-POLICY.md).
+
+Licensed under [MIT](LICENSE).

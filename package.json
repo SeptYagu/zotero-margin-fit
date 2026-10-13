@@ -1,11 +1,11 @@
 {
   "name": "zotero-margin-fit",
-  "version": "0.1.16",
+  "version": "0.1.17pre2",
   "private": true,
   "description": "Smart content fitting for the Zotero PDF reader",
   "license": "MIT",
   "scripts": {
-    "test": "node --test tests/core.test.cjs tests/controller.test.cjs tests/cache.test.cjs tests/text-equivalence.test.cjs tests/folio.test.cjs tests/sparse.test.cjs tests/ui-layout.test.cjs tests/idle-indexer.test.cjs",
+    "test": "node --test tests/core.test.cjs tests/controller.test.cjs tests/cache.test.cjs tests/text-equivalence.test.cjs tests/folio.test.cjs tests/sparse.test.cjs tests/ui-layout.test.cjs tests/idle-indexer.test.cjs tests/spread-navigation.test.cjs",
     "build": "node scripts/build.cjs",
     "update:feed": "node scripts/update-feed.cjs",
     "fixtures": "node tests/make-fixtures.cjs",
@@ -19,7 +19,8 @@
     "test:active": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript v0114-active-reader-integration.js",
     "test:all-open": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript v0115-all-open-indexing-integration.js",
     "test:annotation": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript v0115-annotation-background.js",
-    "test:fit-off-cache": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript v0115-fit-off-cache-integration.js"
+    "test:fit-off-cache": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript v0115-fit-off-cache-integration.js",
+    "test:spread": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/run-integration.ps1 -Windowed -DriverScript native-spread-integration.js"
   },
   "engines": {
     "node": ">=20"

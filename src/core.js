@@ -426,6 +426,23 @@ var MarginFitCore = (() => {
     const change = explicit || !fits || !anchor || Math.abs(target / anchor - 1) + 1e-10 >= DEAD_ZONE;
     return { scale: change ? target : actual, target, change, safe };
   }
+  // Mirror PDF.js native SpreadMode grouping; no custom PDF layout.
+  // 0: single; 1: [1,2],[3,4]...; 2: [1],[2,3],[4,5]...
+  function spreadStart(p, mode) {
+    p=Math.max(1,Math.floor(p));
+    if(mode===1)return p%2===0?p-1:p;
+    if(mode===2)return p===1?1:p%2===1?p-1:p;
+    return p;
+  }
+  function spreadStep(p, count, mode, direction) {
+    const start=spreadStart(p,mode);
+    if(direction>0) {
+      const next=mode===1?start+2:mode===2?(start===1?2:start+2):start+1;
+      return next<=count?next:start;
+    }
+    const prev=mode===1?start-2:mode===2?(start<=2?1:start-2):start-1;
+    return prev>=1?prev:start;
+  }
   function primaryPage(visible, previous, fallback) {
     const sorted = [...visible].sort((a,b) => b.area - a.area);
     if (!sorted.length) return fallback;
@@ -745,6 +762,7 @@ var MarginFitCore = (() => {
   }
   return { VERSION, SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,
     parityModels, prediction, multiply, textBox, textNeedsInkCalibration, sparseEdgeSupport, reconcileTextInk, textAndFolio, folioPattern, fitPageRecord,
-    isTextOnlyOps, inkBox, sparseInkBox, sparseBodyWidth, scaleDecision, primaryPage, hook, Session, IdleIndexer };
+    isTextOnlyOps, inkBox, sparseInkBox, sparseBodyWidth, scaleDecision, primaryPage,
+    spreadStart, spreadStep, hook, Session, IdleIndexer };
 })();
 if (typeof module !== "undefined") module.exports = MarginFitCore;

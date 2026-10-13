@@ -62,12 +62,12 @@ async function runTests() {
     await until(()=>c.session.cache.has(7) && c.session.cache.has(9),
       'only adjacent pages are prefetched');
     measurements.folioValidationRenders=c.session.metrics.folioValidationRenders;
-    check(doc.querySelectorAll('[data-marginfit]').length===3,'Exactly three replacement toolbar controls');
+    check(doc.querySelectorAll('[data-marginfit]').length===4,'Exactly four toolbar controls including native spread selector');
     const widthButton=doc.querySelector('[data-marginfit="width"]'),heightButton=doc.querySelector('[data-marginfit="height"]'),detectButton=doc.querySelector('[data-marginfit="detect"]');
     check(heightButton.title==='Fit Height / 适合高度' && heightButton.getAttribute('aria-label')===heightButton.title &&
       detectButton.title==='Detect Margins: On / 识别边界：开启' && detectButton.getAttribute('aria-label')==='Detect Margins / 识别边界',
       'Toolbar tooltips and accessible labels display English before Chinese');
-    for (const name of ['width','height','detect']) {
+    for (const name of ['width','height','spread','detect']) {
       const button=doc.querySelector(`[data-marginfit="${name}"]`);
       check(reader._iframeWindow.getComputedStyle(button).getPropertyValue('-moz-window-dragging')==='no-drag',
         name+' button opts out of native toolbar window dragging');
@@ -120,7 +120,7 @@ async function runTests() {
     doc.querySelector('[data-marginfit="height"]').click();
     await until(()=>c.mode==='height' && c.metrics.writes.slice(heightBefore).some(w=>w.type==='position' && w.explicit),'height button click');
     check(c.mode==='height','Added height button click uses detected content height');
-    const safeHeight=even.raw[3]-even.raw[1]+32; // v0.1.6: 16 PDF units per edge
+    const safeHeight=even.raw[3]-even.raw[1]+16; // v0.1.16: 8 PDF units above/below
     const unit=c.viewer.getPageView(7).viewport.scale/c.viewer.currentScale;
     check(Math.abs(c.viewer.currentScale-(c.container.clientHeight-16)/(safeHeight*unit))<0.03,'Height fitting uses native PDF.js CSS units');
     doc.querySelector('[data-marginfit="detect"]').click();
@@ -338,7 +338,7 @@ async function runTests() {
     view.zoomPageWidth();check(finalC.viewer.currentScaleValue==='page-width','Native width works after disable');
     await addon.enable();
     await until(()=>Zotero.MarginFit?.controllers.size>0,'re-enable discovery');
-    check(finalDoc.querySelectorAll('[data-marginfit]').length===3,'Re-enable does not duplicate controls');
+    check(finalDoc.querySelectorAll('[data-marginfit]').length===4,'Re-enable does not duplicate controls');
     await addon.uninstall();
     check(!Zotero.MarginFit,'Uninstall removes diagnostic reference');
     await finish({passed:true});

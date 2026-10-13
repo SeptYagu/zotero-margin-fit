@@ -62,8 +62,8 @@ var MarginFitRuntime = (() => {
           event.preventDefault();
           event.stopImmediatePropagation?.();
           const from=this.page();
-          const p=Math.max(1,Math.min(this.session.count,
-            from+(event.key === "PageDown" ? 1 : -1)));
+          const p=C.spreadStep(from,this.session.count,this.viewer.spreadMode,
+            event.key === "PageDown" ? 1 : -1);
           if(p!==from) {
             const move=this.host.enabled() ? this.snapToContent(p,from) : this.snapToPage(p,from);
             move.catch(error=>this.failure(error));
@@ -92,6 +92,12 @@ var MarginFitRuntime = (() => {
       });
       this.bus("rotationchanging", () => { this.manual = false; this.input(); });
       this.bus("pagechanging", () => { if (!this.muted) this.input(); });
+      // Keep the toolbar in sync when the user selects a native spread mode via View.
+      this.bus("spreadmodechanged", () => {
+        if(this.mode==="height")
+          this.lastPage=C.spreadStart(this.viewer.currentPageNumber,this.viewer.spreadMode);
+        this.host.updateButtons?.();
+      });
       if (this.win.ResizeObserver) {
         this.size = [this.container.clientWidth,this.container.clientHeight];
         this.resize = new this.win.ResizeObserver(() => {
@@ -136,7 +142,8 @@ var MarginFitRuntime = (() => {
         const h = Math.max(0, Math.min(r.bottom,root.bottom)-Math.max(r.top,root.top));
         if (w*h) visible.push({ id, area: w*h });
       }
-      return C.primaryPage(visible, this.lastPage, this.viewer.currentPageNumber);
+      const p=C.primaryPage(visible, this.lastPage, this.viewer.currentPageNumber);
+      return this.mode==="height" ? C.spreadStart(p,this.viewer.spreadMode) : p;
     }
     input(userMovement = false) {
       if (this.closed) return;
@@ -425,7 +432,12 @@ var MarginFitRuntime = (() => {
         const box = decision.safe;
         const left = this.container.scrollLeft + r.left-root.left;
         const top = this.container.scrollTop + r.top-root.top;
-        const x = left + (box[0]+box[2])*scale/2 - this.container.clientWidth/2;
+        // In native two-page layout, horizontally center the spread, not its first page.
+        const spread=this.mode==="height" && this.viewer.spreadMode ? page.div.closest?.(".spread") : null;
+        const spreadRect=spread?.getBoundingClientRect();
+        const x = spreadRect
+          ? this.container.scrollLeft+(spreadRect.left+spreadRect.right)/2-root.left-this.container.clientWidth/2
+          : left+(box[0]+box[2])*scale/2-this.container.clientWidth/2;
         const targetX = Math.max(0,Math.min(x,
           Math.max(0,this.container.scrollWidth-this.container.clientWidth)));
         // Adjacent page layouts often differ by only a few pixels. Do not
@@ -803,7 +815,9 @@ var MarginFitRuntime = (() => {
     strings() {
       return { width:"Fit Width / \u9002\u5408\u5bbd\u5ea6",
         height:"Fit Height / \u9002\u5408\u9ad8\u5ea6",
-        detect:"Detect Margins / \u8bc6\u522b\u8fb9\u754c" };
+        detect:"Detect Margins / \u8bc6\u522b\u8fb9\u754c",
+        spread:["Single Page / \u5355\u9875","Odd Spreads (1-2, 3-4) / \u5947\u6570\u9875\u8de8\u9875",
+          "Even Spreads (cover, 2-3) / \u5076\u6570\u9875\u8de8\u9875"] };
     }
     detectTitle(fallback = false, reason = "") {
       const state = this.enabled() ? ["On", "开启"] : ["Off", "关闭"];
@@ -873,14 +887,27 @@ var MarginFitRuntime = (() => {
       const width = button("width","M3 5v14M21 5v14M5 12h14M9 8l-4 4 4 4M15 8l4 4-4 4");
       const height = button("height","M5 3h14M5 21h14M12 5v14M8 9l4-4 4 4M8 15l4 4 4-4");
       const toggle = button("detect","M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 7h10v10H7z");
+      // Native three-state spread selector; label shows the current physical pairing.
+      const spread=doc.createElement("button");
+      spread.type="button"; spread.dataset.marginfit="spread"; spread.className="toolbar-button";
+      spread.style.minWidth="37px";spread.style.padding="3px";spread.style.fontSize="11px";
       width.addEventListener("click", () => this.clickMode(reader,"width"));
       height.addEventListener("click", () => this.clickMode(reader,"height"));
       toggle.addEventListener("click", () => this.Services.prefs.setBoolPref(PREF,!this.enabled()));
-      bar.append(style,width,height,toggle);
+      spread.addEventListener("click", () => this.cycleSpread(reader));
+      bar.append(style,width,height,spread,toggle);
       if (!this.positionToolbar(doc,bar,append)) return;
       this.removeDuplicateToolbars(doc,bar);
       this.toolbars.set(reader,bar);
       this.updateButtons(); this.discoverViews(reader);
+    }
+    cycleSpread(reader) {
+      const view=reader._internalReader?._primaryView;
+      const viewer=this.controllers.get(view)?.viewer || view?._iframeWindow?.PDFViewerApplication?.pdfViewer;
+      if(!viewer)return;
+      // PDF.js SpreadMode: NONE=0, ODD=1, EVEN=2.
+      viewer.spreadMode=(viewer.spreadMode+1)%3;
+      this.updateButtons();
     }
     clickMode(reader,mode) {
       const view=reader._internalReader?._primaryView;
@@ -895,11 +922,22 @@ var MarginFitRuntime = (() => {
     }
     updateButtons() {
       const t = this.strings();
-      for (const bar of this.toolbars.values()) {
+      for (const [reader,bar] of this.toolbars) {
         try {
         const width = bar.querySelector('[data-marginfit="width"]');
         const height = bar.querySelector('[data-marginfit="height"]');
         const toggle = bar.querySelector('[data-marginfit="detect"]');
+        const spread=bar.querySelector('[data-marginfit="spread"]');
+        const view=reader._internalReader?._primaryView;
+        const mode=this.controllers.get(view)?.viewer?.spreadMode ??
+          view?._iframeWindow?.PDFViewerApplication?.pdfViewer?.spreadMode ?? 0;
+        if(spread) {
+          spread.textContent=["1","1|2","2|3"][mode] || "1";
+          spread.dataset.spreadMode=String(mode);
+          spread.title=t.spread[mode] || t.spread[0];
+          spread.setAttribute("aria-label",spread.title);
+          spread.setAttribute("aria-pressed",String(mode!==0));
+        }
         width.title=t.width;
         width.setAttribute("aria-label",t.width);
         width.setAttribute("aria-pressed",String(this.mode()==="width"));

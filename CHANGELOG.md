@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.18 - 2026-10-15
+
+- Fit Width now switches to the next page's cached content bounds only after the previous content leaves the viewport, reducing unnecessary re-centering during continuous reading.
+- Fit Height now uses the upper/lower content extents of both sheets in a native spread, with five PDF units of vertical safety, a shared zoom, and complete horizontal content visibility.
+- Anticipate horizontal scrollbars from full PDF page layout before applying the zoom; limit each explicit Height Fit to one scale write instead of a visible correction after the first zoom.
+- Keep native scrolling, single/odd/even spread navigation, manual positioning, persistent bound caches, and the existing 16-unit Fit Width safety margin.
+- Thanks to [Dylan Awalt-Conley](https://github.com/dawaltconley) ([Center PDF](https://github.com/dawaltconley/zotero-center-pdf)) for suggesting the navigation-hook approach that inspired improvements to MarginFit's page navigation. No code was copied.
+
+
 ## 0.1.17 - 2026-10-12
 
 - Add one native three-state spread selector immediately after Detect Margins, with single outlined paper, odd filled-left/outlined-right, and even outlined-left/filled-right icons.

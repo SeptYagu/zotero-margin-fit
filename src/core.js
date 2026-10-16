@@ -13,7 +13,7 @@ var MarginFitCore = (() => {
     if (!b) return [...a];
     return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
   }
-  const HEIGHT_SAFETY = 8; // Height Fit only: smaller vertical gutter, still protective.
+  const HEIGHT_SAFETY = 5; // Height Fit: five PDF viewport units above and below detected content.
   function safeBox(raw, width, height, xPad = SAFETY, yPad = SAFETY) {
     return [clamp(raw[0] - xPad, 0, width), clamp(raw[1] - yPad, 0, height),
       clamp(raw[2] + xPad, 0, width), clamp(raw[3] + yPad, 0, height)];
@@ -426,6 +426,20 @@ var MarginFitCore = (() => {
     const change = explicit || !fits || !anchor || Math.abs(target / anchor - 1) + 1e-10 >= DEAD_ZONE;
     return { scale: change ? target : actual, target, change, safe };
   }
+  // One PDF.js zoom for the entire spread. The fixed CSS gap between native
+  // page divs must not be multiplied when computing the new zoom.
+  function spreadScaleDecision(bounds, viewport, actual, anchor, explicit = false) {
+    const gap = Math.max(0,bounds.gap || 0);
+    const contentWidth = Math.max(1,bounds.right-bounds.left-gap);
+    const contentHeight = Math.max(1,bounds.bottom-bounds.top);
+    // Two CSS pixels guard against fractional PDF.js layout rounding.
+    const width = Math.max(1,viewport.width-2), height = Math.max(1,viewport.height-2);
+    const target = clamp(actual * Math.min(Math.max(1,width-gap)/contentWidth,
+      height/contentHeight),0.1,MAX_SCALE);
+    const fits = bounds.right-bounds.left<=width+0.5 && contentHeight<=height+0.5;
+    const change = explicit || !fits || !anchor || Math.abs(target/anchor-1)+1e-10>=DEAD_ZONE;
+    return {scale:change?target:actual,target,change};
+  }
   // Mirror PDF.js native SpreadMode grouping; no custom PDF layout.
   // 0: single; 1: [1,2],[3,4]...; 2: [1],[2,3],[4,5]...
   function spreadStart(p, mode) {
@@ -760,9 +774,9 @@ var MarginFitCore = (() => {
     }
     close() { this.closed=true;this.stop(); }
   }
-  return { VERSION, SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,
+  return { VERSION, SAFETY, HEIGHT_SAFETY, IDLE_MS, DEAD_ZONE, MAX_SCALE, clamp, union, safeBox, samples, neighbors,
     parityModels, prediction, multiply, textBox, textNeedsInkCalibration, sparseEdgeSupport, reconcileTextInk, textAndFolio, folioPattern, fitPageRecord,
-    isTextOnlyOps, inkBox, sparseInkBox, sparseBodyWidth, scaleDecision, primaryPage,
+    isTextOnlyOps, inkBox, sparseInkBox, sparseBodyWidth, scaleDecision, spreadScaleDecision, primaryPage,
     spreadStart, spreadStep, hook, Session, IdleIndexer };
 })();
 if (typeof module !== "undefined") module.exports = MarginFitCore;

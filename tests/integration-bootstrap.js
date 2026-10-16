@@ -181,18 +181,26 @@ async function runTests() {
     await c.request('width');
     check(c.userHeldPage===null && Math.abs(c.container.scrollLeft-manualX)>12,
       'Explicit Fit Width intentionally overrides the user position hold');
-    const baseline=c.metrics.writes.length;
+    let previousWrites=c.metrics.writes.length;
     for(let n=0;n<10;n++) {
       c.container.dispatchEvent(new c.win.WheelEvent('wheel',{deltaY:50,bubbles:true}));
       c.container.scrollTop+=c.viewer.getPageView(c.viewer.currentPageNumber-1).viewport.height+12;
       await sleep(90);
-      check(c.metrics.writes.length===baseline,'Continuous scroll '+n+' causes no plugin zoom/position writes');
+      // Since v0.1.18, Width Fit may align once on a genuine content-page
+      // crossing. It must not repeatedly zoom/reposition during the same step.
+      const recent=c.metrics.writes.slice(previousWrites);
+      check(recent.filter(w=>w.type==='scale').length<=1 &&
+        recent.filter(w=>w.type==='position').length<=1,
+        'Continuous scroll '+n+' performs no repeated fit writes');
+      previousWrites=c.metrics.writes.length;
     }
     // Very slow PDF.js renders can exceed the standard 20s harness limit
     // under heavy native reader load; allow the two idle neighbor renders to finish.
     await until(()=>c.prefetchedEpoch===c.epoch,'idle page analysis after scrolling',600);
-    check(c.metrics.writes.length===baseline,
-      'Stopping after user-directed movement on a page does not recenter the view');
+    const settledWrites=c.metrics.writes.length;
+    await sleep(650);
+    check(c.metrics.writes.length===settledWrites,
+      'Stopping after a page crossing does not start a repeated fitting loop');
     const once=c.metrics.writes.length;
     await sleep(1000);
     check(c.metrics.writes.length===once,'Plugin own scroll events do not create a fitting loop');

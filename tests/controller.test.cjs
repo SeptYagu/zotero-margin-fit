@@ -21,6 +21,9 @@ function setup(count=1) {
   let lastStats;
   const stats=data=>{lastStats=data;};
   const view={_iframeWindow:win,zoomPageWidth:nativeWidth,zoomPageHeight:nativeHeight,
+    _onManualNavigation(){viewer.manualNavigations=(viewer.manualNavigations||0)+1;},
+    navigateToNextPage(){viewer.nativeNext=(viewer.nativeNext||0)+1;},
+    navigateToPreviousPage(){viewer.nativePrevious=(viewer.nativePrevious||0)+1;},
     _onChangeViewStats:stats,_updateViewStats(){this._onChangeViewStats({canZoomReset:false});}};
   let time=1000,enabled=false;
   const errors=[];
@@ -95,9 +98,17 @@ test('necessary idle zoom preserves the reading coordinate without clamping it t
   const after=(f.viewer.container.scrollTop+400)/f.viewer.getPageView(0).viewport.scale;
   assert.ok(f.viewer.currentScale>1);assert.ok(Math.abs(after-before)<1e-6);f.controller.close();
 });
+test('enabled Height Fit uses 5 units of top and bottom safety without reserving 16 CSS pixels',async()=>{
+  const f=setup();f.enable();f.controller.mode='height';
+  await f.controller.apply(f.record,1,0,true);
+  const expected=798/(510*4/3); // 500 ink height + 5 on each side; 2 CSS pixels rounding guard
+  assert.ok(Math.abs(f.viewer.currentScale-expected)<1e-8,`scale ${f.viewer.currentScale}, expected ${expected}`);
+  f.controller.close();
+});
+
 test('idle height fitting retains vertical position instead of centering the page again',async()=>{
   const f=setup();f.enable();f.advance(500);f.controller.mode='height';
-  f.viewer.currentScaleValue=784/(532*4/3);f.controller.anchor=f.viewer.currentScale;
+  f.viewer.currentScaleValue=798/(510*4/3);f.controller.anchor=f.viewer.currentScale;
   f.viewer.container.scrollTop=45;
   await f.controller.apply(f.record,1,0);
   assert.equal(f.viewer.container.scrollTop,45);f.controller.close();
@@ -140,6 +151,9 @@ test('actual page turns prioritize prefetch in the reading direction',async()=>{
   assert.equal(f.controller.readingDirection,1);
   f.viewer.currentPageNumber=2;
   f.viewer._getVisiblePages=()=>({views:[{id:2,view:f.viewer.getPageView(1)}]});
+  // The unit mock uses the same page rectangle for all pages; fall back to
+  // PDF.js's visible-page selection when the previous cached page is absent.
+  f.session.cache.clear();
   f.controller.input(false);
   await new Promise(r=>setTimeout(r,130));
   assert.equal(f.controller.readingDirection,-1);
@@ -166,7 +180,7 @@ test('OFF scroll path does not inspect visible-page geometry',async()=>{
   f.controller.close();
 });
 
-test('trailing scroll debounce avoids page geometry during continuous input',()=>{
+test('scroll geometry is throttled without waiting for an endless input burst',()=>{
  const f=setup();f.enable();
  // Virtual clock avoids host scheduling delays making synthetic input look idle.
  let now=0,nextId=0;
@@ -190,15 +204,16 @@ test('trailing scroll debounce avoids page geometry during continuous input',()=
  for(let n=0;n<12;n++) {
    f.controller.input();
    advance(19);
-   assert.equal(calls,0,'no geometry reads while input continues');
  }
+ assert.ok(calls>=1 && calls<=3,'checks boundaries at most once per 75ms during a burst');
  advance(180);
- assert.equal(calls,1,'one primary-page read once input stops');
+ assert.ok(calls<=4,'no unbounded reads after the burst');
  f.controller.close();
 });
 
 test('horizontal fit diagnostics retain actual left/right space and scroll clamp evidence',async()=>{
   const f=setup();f.enable();
+  f.controller.metrics.captureHorizontalFit=true;
   await f.controller.apply(f.record,1,0,true);
   const g=f.controller.metrics.lastHorizontalFit;
   assert.ok(g && Number.isFinite(g.leftMargin) && Number.isFinite(g.rightMargin));
@@ -459,5 +474,86 @@ test('mode changes arriving from another reader do not refit this inactive pane'
  assert.equal(f.viewer.currentScale,1.31);
  assert.equal(f.viewer.container.scrollTop,83);
  assert.equal(f.controller.metrics.writes.length,count);
+ f.controller.close();
+});
+
+
+test('Width Fit waits for the outgoing content edge, not the physical-page majority',()=>{
+ const f=setup(3);f.enable();
+ const container=f.viewer.container;
+ const pages=Array.from({length:3},(_,i)=>({
+   viewport:{scale:4/3,rotation:0},
+   div:{getBoundingClientRect:()=>({top:i*1200-container.scrollTop,
+     bottom:(i+1)*1200-container.scrollTop,left:0,right:800})}
+ }));
+ f.viewer.getPageView=i=>pages[i];
+ for(let p=1;p<=3;p++)f.session.cache.set(p,{...f.record});
+ container.scrollTop=500;
+ assert.equal(f.controller.widthPage(),1,'old content is still visible');
+ container.scrollTop=910;
+ assert.equal(f.controller.widthPage(),2,'old text is gone although the old PDF page remains');
+ f.controller.lastPage=2;
+ container.scrollTop=550;
+ assert.equal(f.controller.widthPage(),1,'reverse scrolling switches when new text has left');
+ f.controller.close();
+});
+
+
+test('native page commands use Height Fit hook and restore the originals',async()=>{
+ const f=setup(4);f.enable();f.controller.mode='height';f.viewer.spreadMode=0;
+ const nativeNext=f.view.navigateToNextPage;
+ const page2={...f.record};f.session.cache.set(2,page2);
+ f.view.navigateToNextPage();
+ await new Promise(r=>setTimeout(r,100));
+ assert.equal(f.viewer.manualNavigations,1,'Zotero manual-navigation notification is kept');
+ assert.equal(f.viewer.nativeNext,undefined,'height does not perform a redundant native page jump');
+ assert.equal(f.controller.lastPage,2);
+ f.controller.mode='width';
+ f.view.navigateToNextPage();
+ assert.equal(f.viewer.nativeNext,1,'width preserves Zotero next-page navigation');
+ f.controller.close();
+ assert.notEqual(f.view.navigateToNextPage,nativeNext,'plugin hook is removed on close');
+ assert.equal(f.view.navigateToNextPage(),undefined);
+ assert.equal(f.viewer.nativeNext,2,'native navigation restored after unload');
+});
+
+test('Height Fit reads both pages and merges staggered ink bounds in native spread',()=>{
+ const f=setup(4);f.enable();f.controller.mode='height';f.viewer.spreadMode=1;
+ const scale=4/3;
+ f.viewer.getPageView=i=>({viewport:{scale,rotation:0,width:800,height:1066.67},
+   div:{getBoundingClientRect:()=>({left:i*820,right:i*820+800,top:10,bottom:1077})}});
+ const a={...f.record,raw:[100,30,400,400]};
+ const b={...f.record,raw:[100,300,400,750]};
+ f.session.cache.set(1,a);f.session.cache.set(2,b);
+ const g=f.controller.spreadContent(1,a);
+ assert.ok(Math.abs(g.top-(10+25*scale))<1e-6);
+ assert.ok(Math.abs(g.bottom-(10+755*scale))<1e-6);
+ assert.ok(Math.abs(g.gap-20)<1e-6);
+ assert.ok(Math.abs(g.right-(820+416*scale))<1e-6);
+ const ratio=global.MarginFitCore.spreadScaleDecision(g,{width:640,height:800},1,1,true);
+ assert.ok(ratio.scale<0.65,'combined width caps the zoom even for short ink');
+ f.controller.close();
+});
+
+test('native full-paper width includes spread gap and viewer padding',()=>{
+ const f=setup(4);
+ assert.equal(f.controller.paperLayoutWidth(1),838);
+ f.viewer.spreadMode=1;
+ assert.equal(f.controller.paperLayoutWidth(1),1650);
+ f.viewer.spreadMode=2;
+ assert.equal(f.controller.paperLayoutWidth(.5),850);
+ f.viewer.spreadMode=1;
+ f.viewer.getPageView=i=>({viewport:{width:i===3?1300:800}});
+ assert.equal(f.controller.paperLayoutWidth(1),2150,'a wider distant spread can trigger the scrollbar');
+ f.controller.close();
+});
+test('Fit Height predicts horizontal scrollbar and writes scale once',async()=>{
+ const f=setup();f.enable();f.controller.mode='height';
+ f.viewer.container.offsetWidth=653; // 13px vertical scrollbar
+ f.viewer.container.offsetHeight=800; // horizontal scrollbar not yet visible
+ await f.controller.apply(f.record,1,0,true);
+ const expected=(800-13-2)/(510*4/3);
+ assert.ok(Math.abs(f.viewer.currentScale-expected)<1e-8);
+ assert.equal(f.controller.metrics.writes.filter(x=>x.type==='scale').length,1);
  f.controller.close();
 });

@@ -1,6 +1,12 @@
-# MarginFit ? Current verification (v0.1.17)
+# MarginFit — Current verification (v0.1.18)
 
 The older v0.1.2 records remain archived in [historical verification](verification-v0.1.2-legacy.md). This page is maintained for the CURRENT release.
+
+## 0.1.18 validation (Windows Zotero 10.0.6)
+
+- 110/110 Node unit tests; real isolated Zotero Height, spread, and six single/odd/even-spread four-edge visibility cases passed before publication.
+- Native paper layout width verified against Zotero's bundled PDF.js; explicit Height Fit tests recorded at most one scale write per fit.
+- Regression tests cover existing Width Fit, continuous page scrolling, cached content boundaries and navigation. Current test limitations include unverified macOS/Linux and all physical keyboard devices.
 
 ## 0.1.17 validation (Windows Zotero 10.0.6)
 

@@ -17,7 +17,7 @@ Many PDFs have large white margins or inconsistent content positions, making the
 ### 2. One-click Fit Width / Fit Height
 
 - **Fit Width:** enlarge detected content to fill the available reading width.
-- **Fit Height:** fit detected content vertically for page-by-page reading.
+- **Fit Height:** fit the detected content within both the available height and width; in native two-page layouts, keep both sheets' text visible at a shared zoom.
 - **Click the selected fit button again to turn it off** without resetting your position. Selecting the other button switches modes.
 - Turn **Detect Margins** off to use Zotero's original page-width / page-height fitting.
 
@@ -69,7 +69,7 @@ Existing installations can receive approved releases through Zotero's plugin upd
 
 - **Zotero:** 10.0.5–10.0.x. Tested primarily with Zotero 10.0.6 on Windows; macOS and Linux are not yet fully verified.
 - **PDF quality:** Scanned pages, unusual dark edges or irregular layouts may require conservative boundary detection.
-- **Two-page height fitting:** Narrow windows or very different adjacent page sizes may prevent both pages from fitting fully at the same time.
+- **Two-page height fitting:** Both detected content areas are fitted together. Unusual scans or unreliable boundaries can still require the conservative full-page fallback.
 - **Privacy and originals:** No OCR, network analysis, PDF rewriting or annotation-coordinate changes.
 
 MarginFit caches detected page boundaries locally to speed up future reading. After analyzing the active document, it can also analyze other currently open PDFs in the background, without changing what you are viewing.
@@ -102,7 +102,7 @@ MarginFit caches detected page boundaries locally to speed up future reading. Af
 
 从 [最新版本下载页面](https://github.com/SeptYagu/zotero-margin-fit/releases/latest) 下载 **.xpi** 安装包，在 Zotero 的 **Tools（工具）→ Plugins（插件）→ 从文件安装插件** 中安装，打开 PDF 即可使用。
 
-支持 **Zotero 10.0.5–10.0.x**，主要在 Windows 上测试。扫描杂线、背景色和不规则页面可能影响识别；窗口过窄或双页尺寸差异较大时，两页内容不一定能同时完整显示。
+支持 **Zotero 10.0.5–10.0.x**，主要在 Windows 上测试。扫描杂线、背景色和不规则页面可能影响识别；双页适合高度时以两页正文的完整边界共同缩放，识别不可靠时保守回退。
 
 ## Development
 

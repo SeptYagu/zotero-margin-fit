@@ -45,6 +45,22 @@ var MarginFitRuntime = (() => {
       }));
       this.restores.push(C.hook(view, "_onChangeViewStats", data => stats.call(view,
         host.enabled() ? into(this.win,{ ...data, canZoomReset: true }) : data)));
+      // Handle explicit Zotero page commands at their source, without a second
+      // post-navigation recenter. Width Fit retains the native navigation path.
+      for (const [name, direction] of [["navigateToNextPage",1],["navigateToPreviousPage",-1]]) {
+        const native = view[name];
+        if (typeof native !== "function") continue;
+        this.restores.push(C.hook(view,name,(...args) => {
+          if (this.closed || this.mode !== "height" ||
+              typeof view._onManualNavigation !== "function") return native.apply(view,args);
+          const from=this.page();
+          const target=C.spreadStep(from,this.session.count,this.viewer.spreadMode,direction);
+          if (target===from) return native.apply(view,args);
+          view._onManualNavigation();
+          const move=this.host.enabled() ? this.snapToContent(target,from) : this.snapToPage(target,from);
+          move.catch(error=>this.failure(error));
+        }));
+      }
       this.listen(this.container, "scroll", () => {
         if (!this.muted) this.input(true);
       });
@@ -145,6 +161,37 @@ var MarginFitRuntime = (() => {
       const p=C.primaryPage(visible, this.lastPage, this.viewer.currentPageNumber);
       return this.mode==="height" ? C.spreadStart(p,this.viewer.spreadMode) : p;
     }
+    // Width Fit changes pages only after the previous page's actual content
+    // has left the viewport. PDF page margins are not a reading boundary.
+    widthPage() {
+      const root=this.container.getBoundingClientRect();
+      const bounds=n=>{
+        if(n<1 || n>this.session.count)return null;
+        const page=this.viewer.getPageView(n-1);
+        const record=this.session.cache.get(n);
+        if (!page?.div || record?.quality!=="reliable" ||
+            record.rotation!==page.viewport.rotation)return null;
+        const fitting=C.fitPageRecord(record,this.session.folioPattern,n);
+        const box=C.safeBox(fitting.widthFitRaw || fitting.raw,record.width,record.height);
+        const rect=page.div.getBoundingClientRect();
+        return {top:rect.top+box[1]*page.viewport.scale,
+          bottom:rect.top+box[3]*page.viewport.scale,
+          pageTop:rect.top,pageBottom:rect.bottom};
+      };
+      const p=this.lastPage, old=bounds(p);
+      if(!old)return this.page(); // no reliable cache: keep native fallback
+      if(old.bottom<=root.top) {
+        const next=bounds(p+1);
+        if(next && next.top<root.bottom && next.bottom>root.top)return p+1;
+      }
+      if(old.top>=root.bottom) {
+        const prev=bounds(p-1);
+        if(prev && prev.bottom>root.top && prev.top<root.bottom)return p-1;
+      }
+      // Explicit jumps and scrolls over multiple pages still need a target.
+      if(old.pageBottom<root.top || old.pageTop>root.bottom)return this.page();
+      return p;
+    }
     input(userMovement = false) {
       if (this.closed) return;
       // Do not infer a user override from pagechanging/resize/rotation events.
@@ -164,21 +211,18 @@ var MarginFitRuntime = (() => {
       // and allocating a timer for every single input event.
       if (this.inputFlushTimer) return;
       const schedule = token => {
-        // Capture the event epoch when scheduling, not when the timer fires.
         this.inputFlushTimer = this.host.setTimeout(() => flush(token), 75);
       };
       const flush = token => {
-        if (this.closed || !this.host.enabled()) {
-          this.inputFlushTimer = null;
-          return;
-        }
-        if (token !== this.epoch) {
-          // Input happened during this window; wait another quiet window.
+        this.inputFlushTimer = null;
+        if (this.closed || !this.host.enabled() || this.mode === "off") return;
+        // Width: check content edges during a continuous scroll burst.
+        // Height: keep the existing quiet-window debounce before snapping.
+        if (this.mode === "height" && token !== this.epoch) {
           schedule(this.epoch);
           return;
         }
-        this.inputFlushTimer = null;
-        const p = this.page();
+        const p = this.mode === "width" ? this.widthPage() : this.page();
         if (p !== this.lastPage) {
           if (this.mode === "height") {
             // User crossed into another page: one content-centered landing.
@@ -210,7 +254,7 @@ var MarginFitRuntime = (() => {
       const record=await this.session.visible(p,rotation,()=>
         !this.closed && this.host.enabled() && token===this.epoch);
       if (!record || this.closed || token!==this.epoch || this.mode!=="width" ||
-          this.userHeldPage===p || this.page()!==p)return;
+          this.userHeldPage===p || this.lastPage!==p)return;
       await this.apply(record,p,token,true,false,true);
       if(token===this.epoch)this.appliedEpoch=token;
     }
@@ -273,7 +317,8 @@ var MarginFitRuntime = (() => {
         !this.dragging && !this.manual &&
         alive(this.app) && alive(this.view) && alive(this.container) &&
         this.document === this.app.pdfDocument &&
-        this.epoch === token && this.page() === p && this.host.now()-this.lastInput >= C.IDLE_MS;
+        this.epoch === token && (this.mode === "width" ? this.lastPage === p : this.page() === p) &&
+        this.host.now()-this.lastInput >= C.IDLE_MS;
     }
     async begin() {
       if (this.closed || !this.host.enabled() || this.mode === "off") return;
@@ -297,7 +342,7 @@ var MarginFitRuntime = (() => {
     }
     async refine() {
       if (this.mode === "off") return;
-      const token = this.epoch, p = this.page();
+      const token = this.epoch, p = this.mode === "width" ? this.lastPage : this.page();
       if (!this.stable(token, p) || this.prefetchedEpoch === token || this.refiningEpoch === token) {
         if (this.dragging) this.arm(); return;
       }
@@ -389,6 +434,43 @@ var MarginFitRuntime = (() => {
       this.metrics.fallback++;
       this.host.status(this.view, reason || "unreliable");
     }
+    spreadContent(p, record) {
+      // One cached ink rectangle per native PDF.js page; no additional detection.
+      const mode=this.viewer.spreadMode || 0;
+      const start=C.spreadStart(p,mode);
+      const pages=[start];
+      if (mode && start<this.session.count && C.spreadStart(start+1,mode)===start)
+        pages.push(start+1);
+      const edges=pages.map(n=>{
+        const page=this.viewer.getPageView(n-1);
+        const rect=page.div.getBoundingClientRect(), unit=page.viewport.scale;
+        const saved=n===p ? record : this.session.cache.get(n);
+        const reliable=saved?.quality==="reliable" && saved.rotation===page.viewport.rotation;
+        const raw=reliable ? C.fitPageRecord(saved,this.session.folioPattern,n).raw :
+          [0,0,page.viewport.width/unit,page.viewport.height/unit];
+        const box=C.safeBox(raw,reliable?saved.width:raw[2],
+          reliable?saved.height:raw[3],C.SAFETY,C.HEIGHT_SAFETY);
+        return {left:rect.left+box[0]*unit,right:rect.left+box[2]*unit,
+          top:rect.top+box[1]*unit,bottom:rect.top+box[3]*unit,rect};
+      });
+      return {left:Math.min(...edges.map(e=>e.left)),right:Math.max(...edges.map(e=>e.right)),
+        top:Math.min(...edges.map(e=>e.top)),bottom:Math.max(...edges.map(e=>e.bottom)),
+        gap:edges.length===2?Math.max(0,edges[1].rect.left-edges[0].rect.right):0};
+    }
+    paperLayoutWidth(scale) {
+      // PDF.js native .page dimensions, .spread gap 10px, viewer padding 18px/side.
+      // The widest full-paper spread (including other pages) sets scrollWidth.
+      let widest=0,group=0,last=0;
+      for (let n=1;n<=this.session.count;n++) {
+        const start=C.spreadStart(n,this.viewer.spreadMode || 0);
+        const page=this.viewer.getPageView(n-1);
+        const width=page.viewport.width*scale/this.viewer.currentScale+2; // page borders
+        if (start!==last) {
+          widest=Math.max(widest,group);group=width;last=start;
+        } else group+=10+width;
+      }
+      return Math.max(widest,group)+36;
+    }
     async apply(record, p, token, explicit = false, initial = false, navigation = false) {
       const valid = () => !this.closed && this.host.enabled() &&
         this.mode !== "off" && token === this.epoch &&
@@ -401,9 +483,27 @@ var MarginFitRuntime = (() => {
       // PDF.js currentScale excludes its 96/72 CSS conversion; viewport.scale includes it.
       const unitScale = this.viewer.getPageView(p-1).viewport.scale / this.viewer.currentScale;
       const fitting = C.fitPageRecord(record, this.session.folioPattern, p);
-      const decision = C.scaleDecision(fitting, this.mode,
-        { width: Math.max(1,this.container.clientWidth-16)/unitScale, height: Math.max(1,this.container.clientHeight-16)/unitScale },
-        this.viewer.currentScale, this.anchor, explicit && !navigation);
+      const content=this.mode==="height" ? this.spreadContent(p,record) : null;
+      let decision;
+      if (content) {
+        const width=this.container.clientWidth;
+        const horizontal=Math.max(0,(this.container.offsetHeight ?? this.container.clientHeight)-
+          this.container.clientHeight);
+        const scrollbar=Math.max(horizontal,
+          (this.container.offsetWidth ?? width)-width,0);
+        const fullHeight=this.container.clientHeight+horizontal;
+        let fit=C.spreadScaleDecision(content,{width,height:fullHeight},
+          this.viewer.currentScale,this.anchor,explicit && !navigation);
+        // Predict the native horizontal scrollbar before writing PDF.js scale.
+        if (this.paperLayoutWidth(fit.scale)>width)
+          fit=C.spreadScaleDecision(content,{width,height:fullHeight-scrollbar},
+            this.viewer.currentScale,this.anchor,explicit && !navigation);
+        decision={...fit,safe:C.safeBox(fitting.raw,record.width,record.height,
+          C.SAFETY,C.HEIGHT_SAFETY)};
+      } else decision=C.scaleDecision(fitting,this.mode,
+        {width:Math.max(1,this.container.clientWidth-16)/unitScale,
+          height:Math.max(1,this.container.clientHeight-16)/unitScale},
+        this.viewer.currentScale,this.anchor,explicit && !navigation);
       const currentPage = this.viewer.getPageView(p-1);
       const before = currentPage.div.getBoundingClientRect();
       const root = this.container.getBoundingClientRect();
@@ -426,17 +526,17 @@ var MarginFitRuntime = (() => {
         // A content-page jump skips the extra layout turn after an unchanged scale.
         if (scaled && !navigation) await new Promise(resolve => this.host.setTimeout(resolve, 0));
         if (!valid()) return;
+        if (!valid()) return;
         const page = this.viewer.getPageView(p-1);
         const r = page.div.getBoundingClientRect();
         const scale = this.viewer.currentScale*unitScale;
         const box = decision.safe;
         const left = this.container.scrollLeft + r.left-root.left;
         const top = this.container.scrollTop + r.top-root.top;
-        // In native two-page layout, horizontally center the spread, not its first page.
-        const spread=this.mode==="height" && this.viewer.spreadMode ? page.div.closest?.(".spread") : null;
-        const spreadRect=spread?.getBoundingClientRect();
-        const x = spreadRect
-          ? this.container.scrollLeft+(spreadRect.left+spreadRect.right)/2-root.left-this.container.clientWidth/2
+        // Both axes use the same current content envelope, not the left sheet.
+        const fittedContent=content ? this.spreadContent(p,record) : null;
+        const x=fittedContent
+          ? this.container.scrollLeft+(fittedContent.left+fittedContent.right)/2-root.left-this.container.clientWidth/2
           : left+(box[0]+box[2])*scale/2-this.container.clientWidth/2;
         const targetX = Math.max(0,Math.min(x,
           Math.max(0,this.container.scrollWidth-this.container.clientWidth)));
@@ -448,26 +548,28 @@ var MarginFitRuntime = (() => {
           this.container.scrollLeft = targetX;
           horizontalWritten = true;
         }
-        // Capture actual, not assumed, visible margins. Browser scroll clamping,
-        // intrinsic PDF.js page centering and scrollbar changes can make them unequal.
-        const afterHorizontal = page.div.getBoundingClientRect();
-        const actualLeft = afterHorizontal.left-root.left + box[0]*scale;
-        // clientWidth, not root.right, excludes the vertical scrollbar. The
-        // fitting scale and target x both use this same scrollable viewport.
-        const actualRight = root.left+this.container.clientWidth-afterHorizontal.left-box[2]*scale;
-        this.metrics.lastHorizontalFit = {
-          page:p,mode:this.mode,requestedScrollLeft:x,actualScrollLeft:this.container.scrollLeft,
-          maxScrollLeft:Math.max(0,this.container.scrollWidth-this.container.clientWidth),
-          viewportClientWidth:this.container.clientWidth,viewportRectWidth:root.width,
-          scrollbarWidth:root.width-this.container.clientWidth,
-          leftMargin:actualLeft,rightMargin:actualRight,delta:actualLeft-actualRight,
-          widthBounds:[box[0],box[2]],fittingSource:Array.isArray(fitting.widthFitRaw)?"body":"full"
-        };
+        // Detailed margin diagnostics require a second layout read. Keep it
+        // opt-in; normal navigation needs only the final target position.
+        if (this.metrics.captureHorizontalFit) {
+          const afterHorizontal = page.div.getBoundingClientRect();
+          const actualLeft = afterHorizontal.left-root.left + box[0]*scale;
+          const actualRight = root.left+this.container.clientWidth-afterHorizontal.left-box[2]*scale;
+          this.metrics.lastHorizontalFit = {
+            page:p,mode:this.mode,requestedScrollLeft:x,actualScrollLeft:this.container.scrollLeft,
+            maxScrollLeft:Math.max(0,this.container.scrollWidth-this.container.clientWidth),
+            viewportClientWidth:this.container.clientWidth,viewportRectWidth:root.width,
+            scrollbarWidth:root.width-this.container.clientWidth,
+            leftMargin:actualLeft,rightMargin:actualRight,delta:actualLeft-actualRight,
+            widthBounds:[box[0],box[2]],fittingSource:Array.isArray(fitting.widthFitRaw)?"body":"full"
+          };
+        }
         // At unchanged scale leave scrollTop completely untouched (including subpixel rounding).
         // Only an explicit fit aligns content; automatic zoom compensates to retain the reading anchor.
         if ((explicit && !(navigation && this.mode === "width")) || scaled) {
           const y = (explicit && (this.mode === "height" || !navigation)) ? (this.mode === "height"
-            ? top + (box[1]+box[3])*scale/2 - this.container.clientHeight/2
+            ? (fittedContent
+              ? this.container.scrollTop+(fittedContent.top+fittedContent.bottom)/2-root.top-this.container.clientHeight/2
+              : top + (box[1]+box[3])*scale/2 - this.container.clientHeight/2)
             : top + box[1]*scale - 8)
             : top + anchorY*scale - (centerY-root.top);
           const targetY = Math.max(0,y);

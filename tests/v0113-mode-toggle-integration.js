@@ -67,6 +67,7 @@ async function run(){let measurements={};try{
  plugin.discover();ok(bar.parentNode===nativeParent&&bar.previousElementSibling===zoom,'discovery repairs misplaced controls');
  alternate.remove();
  const c=plugin.controllers.get(reader._internalReader._primaryView);
+ c.metrics.captureHorizontalFit=true; // Diagnostic geometry is opt-in since v0.1.18.
  await c.request('width');
  await until(()=>c.metrics.lastHorizontalFit,'horizontal layout metrics');
  const m=c.metrics.lastHorizontalFit;measurements.lastHorizontalFit=m;

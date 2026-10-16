@@ -40,7 +40,7 @@ test('dead zone yields to safety, explicit commands, and height axis',()=>{
   const vp={width:132,height:172};
   assert.equal(C.scaleDecision(r,'width',vp,1.02,1.02).scale,1);
   assert.equal(C.scaleDecision(r,'width',{width:120,height:156},1,1,true).change,true);
-  assert.equal(C.scaleDecision(r,'height',{width:40,height:344},1,1).scale,344/156);
+  assert.equal(C.scaleDecision(r,'height',{width:40,height:344},1,1).scale,344/150);
 });
 test('primary page chooses visible area and keeps the previous page on a close tie',()=>{
   assert.equal(C.primaryPage([{id:2,area:100},{id:3,area:98}],3,1),3);
@@ -248,4 +248,21 @@ test('ink calibration never shrinks a trustworthy or missing graphic boundary',(
   assert.deepEqual(C.reconcileTextInk(text,raster,432,true,{left:true,right:true}),[60,51,420,662]);
   assert.deepEqual(C.reconcileTextInk(text,null,432,true,{left:true,right:true}),text);
   assert.deepEqual(C.reconcileTextInk(null,raster,432,true,{left:true,right:true}),raster);
+});
+
+test('spread fit uses the taller combined vertical bounds and the native fixed gap',()=>{
+ const bounds={left:0,right:420,top:0,bottom:250,gap:20};
+ const d=C.spreadScaleDecision(bounds,{width:220,height:500},1,1,true);
+ assert.ok(Math.abs(d.scale-198/400)<1e-10,'fixed page gap is not magnified');
+ const h=C.spreadScaleDecision(bounds,{width:1000,height:200},1,1,true);
+ assert.ok(Math.abs(h.scale-198/250)<1e-10,'vertical extrema determine height');
+});
+test('spread fit shrinks for 1% horizontal clipping despite 5% dead zone',()=>{
+ const d=C.spreadScaleDecision({left:0,right:605,top:0,bottom:300,gap:0},
+   {width:600,height:800},1,1);
+ assert.equal(d.change,true);
+ assert.ok(d.scale<1 && d.scale>0.98);
+ const fit=C.spreadScaleDecision({left:0,right:300,top:0,bottom:200,gap:0},
+   {width:310,height:210},1,1);
+ assert.equal(fit.change,false,'small safe enlargement remains inside dead zone');
 });

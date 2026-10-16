@@ -1,13 +1,14 @@
-# MarginFit v0.1.17 - Native page-spread toggle and spread-aware navigation
+# MarginFit v0.1.18 — More stable content fitting and complete two-page views
 
-This release makes Zotero's built-in PDF two-page layout easier to use, without a separate renderer.
+This release improves content fitting while keeping Zotero's native PDF layout, continuous scrolling, annotations, and existing cached page boundaries.
 
-- **New paper icon** immediately to the right of Detect Margins. Click to cycle through native Single Page, Odd Spreads (1-2, 3-4...), and Even Spreads (cover alone, then 2-3, 4-5...) settings.
-- **Distinct icon states:** one hollow page for Single; filled left and hollow right for Odd; hollow left and filled right for Even. Changing the Zotero View-menu spread setting updates the icon.
-- **Page Down / Page Up advance one visible spread in Fit Height**, with correct odd/even grouping, lone cover and unpaired last page. Single-page mode still steps one page.
+- **Fit Height keeps both sheets readable.** In Single, Odd Spreads and Even Spreads modes, MarginFit measures the topmost, bottommost, leftmost and rightmost detected content across the visible sheet(s), then chooses one shared zoom that keeps that content visible. The vertical safety gutter is now 5 PDF units (Fit Width retains its 16-unit safety).
+- **Avoid the second zoom adjustment.** Before zooming, MarginFit checks the full-paper widths of Zotero's native spreads, including other pages that may trigger a horizontal scrollbar. When necessary, it reserves that scrollbar's height in the initial calculation, so an explicit Height Fit needs at most one scale write.
+- **Smoother Fit Width scrolling.** Automatic width fitting follows actual content boundaries and waits until the outgoing page's content has left the viewport; small manual movements on the same page remain respected.
+- **Improved page navigation.** Height page turns hook Zotero's navigation commands and reuse MarginFit's existing content alignment; single/odd/even spread behavior stays native.
 
-Width/Height Fit, margin recognition, persistent PDF-bound caches, one-worker all-open PDF background indexing, continuous scrolling, and arrow-key navigation remain supported. Original PDF pages and annotations are not modified.
+No additional PDF raster scanning, cache-format migration, alternate renderer or per-page independent zoom was introduced. The original PDF and annotations are never changed.
 
-Validation: 102/102 Node unit tests; native Zotero 10.0.6 UI, spread, Height Fit, standard reader integration, cache, all-open indexing, annotation and active-reader suites. OS-level Windows PageDown/PageUp inputs in a disposable profile verified Odd Spreads 3 -> 5 -> 3 and Even Spreads 2 -> 4 -> 2. The project owner tested and accepted the private candidate's features and appearance.
+**Verification:** 110 Node unit tests, isolated Windows Zotero 10.0.6 content-height and spread tests, six real viewer layout cases checking that all four content edges fit, and general reader / toolbar / caching regressions. Not all macOS/Linux configurations, scan edge cases or physical keyboards have been tested.
 
-Limitations: for highly mismatched adjacent page sizes or narrow windows, the target-page-derived Height Fit zoom may not fully display both pages simultaneously. macOS/Linux and every physical keyboard device have not been tested.
+**Acknowledgment:** Thanks to [Dylan Awalt-Conley](https://github.com/dawaltconley) ([Center PDF](https://github.com/dawaltconley/zotero-center-pdf)) for suggesting the navigation-hook approach that inspired MarginFit's navigation improvements. MarginFit's implementation is independent; no Center PDF source code was copied.

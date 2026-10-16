@@ -103,11 +103,11 @@ test("wide chart near footer is not rejected as tiny folio",()=>{
   const b=C.sparseBodyWidth(C.sparseInkBox(im),600,800);
   assert.equal(b.box,null);
 });
-test("Width Fit keeps 16pt safety and Height Fit uses 8pt vertical gutter",()=>{
+test("Width Fit keeps 16pt safety and Height Fit adds 5pt vertical gutter",()=>{
   const r={raw:[30,70,540,770],widthFitRaw:[120,70,445,770],width:600,height:800};
   assert.equal(C.SAFETY,16);
   assert.deepEqual(C.scaleDecision(r,"width",{width:357,height:900},1,1,true).safe,[104,54,461,786]);
-  assert.deepEqual(C.scaleDecision(r,"height",{width:900,height:732},1,1,true).safe,[14,62,556,778]);
+  assert.deepEqual(C.scaleDecision(r,"height",{width:900,height:732},1,1,true).safe,[14,65,556,775]);
 });
 
 test("quarter-density diagonal sample is sufficient to calibrate a distributed right text edge",()=>{

@@ -1,14 +1,13 @@
-# MarginFit v0.1.18 — More stable content fitting and complete two-page views
+# MarginFit v0.1.19 — Stable Fit Width across consecutive pages
 
-This release improves content fitting while keeping Zotero's native PDF layout, continuous scrolling, annotations, and existing cached page boundaries.
+Fit Width now uses a continuous shared horizontal position for pages with compatible detected content bounds. This reduces the distracting left/right repositioning that can occur while reading a PDF.
 
-- **Fit Height keeps both sheets readable.** In Single, Odd Spreads and Even Spreads modes, MarginFit measures the topmost, bottommost, leftmost and rightmost detected content across the visible sheet(s), then chooses one shared zoom that keeps that content visible. The vertical safety gutter is now 5 PDF units (Fit Width retains its 16-unit safety).
-- **Avoid the second zoom adjustment.** Before zooming, MarginFit checks the full-paper widths of Zotero's native spreads, including other pages that may trigger a horizontal scrollbar. When necessary, it reserves that scrollbar's height in the initial calculation, so an explicit Height Fit needs at most one scale write.
-- **Smoother Fit Width scrolling.** Automatic width fitting follows actual content boundaries and waits until the outgoing page's content has left the viewport; small manual movements on the same page remain respected.
-- **Improved page navigation.** Height page turns hook Zotero's navigation commands and reuse MarginFit's existing content alignment; single/odd/even spread behavior stays native.
+- **12 PDF-unit safety margin** for the shared horizontal position, chosen after comparing 12, 14 and 16 units across two independent batches of 140 PDFs (6,108 analyzable text-boundary pages).
+- **No anticipatory movements.** MarginFit keeps the current horizontal position while it remains safe; it moves only as far as needed when the currently viewed page makes the shared position invalid.
+- **Simple handling of unusual pages.** An incompatible page starts a fresh continuous group; the plugin does not try to carry the previous group's position past it or snap back later.
+- **Content visibility has priority over the 4px jitter guard.** This preserves the detected content even when a small but necessary horizontal correction is required.
+- **No changes to Fit Height, Zotero native two-page rendering, detection-off fitting, or the original PDF and annotations.** The existing raster/ink detector and its conservative full-page fallback remain unchanged.
 
-No additional PDF raster scanning, cache-format migration, alternate renderer or per-page independent zoom was introduced. The original PDF and annotations are never changed.
+**Validation:** 115 automated Node tests; an isolated Zotero 10 test of 34 particularly difficult PDF pages with the actual MarginFit detector and viewport positioning (34/34 detected content areas visible at 12 units, including musical examples, images, edge text and original printed borders); plus general isolated Zotero integration regressions. The manually inspected 34-page set showed no meaningful information loss. This is strong targeted evidence, not a guarantee for every unusual PDF or operating system.
 
-**Verification:** 110 Node unit tests, isolated Windows Zotero 10.0.6 content-height and spread tests, six real viewer layout cases checking that all four content edges fit, and general reader / toolbar / caching regressions. Not all macOS/Linux configurations, scan edge cases or physical keyboards have been tested.
-
-**Acknowledgment:** Thanks to [Dylan Awalt-Conley](https://github.com/dawaltconley) ([Center PDF](https://github.com/dawaltconley/zotero-center-pdf)) for suggesting the navigation-hook approach that inspired MarginFit's navigation improvements. MarginFit's implementation is independent; no Center PDF source code was copied.
+Release contains no new preferences, extra timers, alternate renderer, or additional PDF scanning.

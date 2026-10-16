@@ -21,7 +21,7 @@ Many PDFs have large white margins or inconsistent content positions, making the
 - **Click the selected fit button again to turn it off** without resetting your position. Selecting the other button switches modes.
 - Turn **Detect Margins** off to use Zotero's original page-width / page-height fitting.
 
-MarginFit avoids repeated tiny adjustments between similar pages and respects manual movement within the current page.
+MarginFit avoids repeated tiny adjustments between similar pages and respects manual movement within the current page. With **Fit Width + Detect Margins**, consecutive compatible pages share a stable horizontal reading position instead of re-centering at every turn. The shared position keeps **12 PDF units** of horizontal content protection and adjusts only when necessary; unusual pages simply start a new group. Fit Height and Zotero's native two-page behavior are unchanged.
 
 ### 3. Page-by-page navigation
 

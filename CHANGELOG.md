@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.19 - 2026-10-16
+
+- Stabilize automatic Fit Width's horizontal position across consecutive compatible PDF pages using a shared safe-position interval, rather than re-centering each page.
+- Use 12 PDF units of horizontal safety, selected after multi-book comparisons and manual review of 34 difficult PDF pages in isolated Zotero.
+- Keep the current position whenever safe; never move in advance for future pages. Start a fresh shared interval at an incompatible page, without restoring an older position.
+- Give current-page content visibility priority over the 4px micro-adjustment guard. Keep Fit Height, native spreads, PDF scanning and cached bounds unchanged.
+- Validate with 115 Node tests, targeted 34-page isolated Zotero checks, and native reader integration regressions.
+
 ## 0.1.18 - 2026-10-15
 
 - Fit Width now switches to the next page's cached content bounds only after the previous content leaves the viewport, reducing unnecessary re-centering during continuous reading.

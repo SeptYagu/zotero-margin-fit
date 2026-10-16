@@ -29,6 +29,7 @@ var MarginFitRuntime = (() => {
       // A user's movement within a page is authoritative until they leave it.
       // This is independent of manual zoom, which existing code already tracks.
       this.userHeldPage = null;
+      this.bamboo = null; // Width-only temporary horizontal consensus; never persisted.
       this.appliedEpoch = -1; this.restores = []; this.listeners = [];
       this.prefetchedEpoch = -1; this.refiningEpoch = null;
       this.inputFlushTimer = null;
@@ -377,7 +378,7 @@ var MarginFitRuntime = (() => {
     suspendMode() {
       // Preserve PDF zoom/scroll position; cancel any pending automatic fit.
       this.epoch++; this.cancelTimer();
-      this.userHeldPage=null; this.manual=false;
+      this.userHeldPage=null; this.bamboo=null; this.manual=false;
       this.host.indexer?.stop(this);
     }
     syncMode() {
@@ -406,6 +407,7 @@ var MarginFitRuntime = (() => {
       if (this.host.enabled()) this.ensureContinuous();
       // Explicit commands intentionally override the user's held position.
       this.userHeldPage = null;
+      this.bamboo=null;
       this.manual = false; this.epoch++; this.cancelTimer();
       this.anchor = this.viewer.currentScale;
       const token = this.epoch, p = this.page();
@@ -470,6 +472,43 @@ var MarginFitRuntime = (() => {
         } else group+=10+width;
       }
       return Math.max(widest,group)+36;
+    }
+    // Fit Width: retain the reading position across consecutive compatible pages.
+    // Use 12 PDF units of horizontal protection; never predict a future page.
+    bambooTarget(p, fitting, page, root, scale, maxScroll, initialX, navigation) {
+      const pad=this.host.bambooPad?.();
+      if (!pad || this.mode!=="width" || this.viewer.spreadMode!==0) {
+        this.bamboo=null;return {target:initialX,force:false};
+      }
+      const raw=fitting.widthFitRaw || fitting.raw;
+      const pageX=this.container.scrollLeft+page.div.getBoundingClientRect().left-root.left;
+      const left=pageX+Math.max(0,raw[0]-pad)*scale;
+      const right=pageX+Math.min(fitting.width,raw[2]+pad)*scale;
+      const range={lo:Math.max(0,right-this.container.clientWidth),
+        hi:Math.min(maxScroll,left)};
+      if (range.lo>range.hi+0.01) {
+        this.bamboo=null;return {target:initialX,force:false};
+      }
+      const previous=this.bamboo;
+      const compatible=!!(previous && navigation && p===previous.page+1 &&
+        Math.abs(scale-previous.scale)<0.0001 &&
+        this.container.clientWidth===previous.width &&
+        Math.abs(maxScroll-previous.maxScroll)<0.01 &&
+        previous.rotation===page.viewport.rotation);
+      let lo=range.lo,hi=range.hi;
+      if (compatible) {
+        const jointLo=Math.max(lo,previous.lo),jointHi=Math.min(hi,previous.hi);
+        if (jointLo<=jointHi+0.01) {lo=jointLo;hi=jointHi;}
+        // Else: the current page begins a fresh bamboo; never restore an older one.
+      }
+      this.bamboo={page:p,lo,hi,scale,width:this.container.clientWidth,
+        maxScroll,rotation:page.viewport.rotation};
+      if (!navigation) return {target:initialX,force:false}; // explicit recenter/first fit unchanged
+      const current=this.container.scrollLeft;
+      const target=Math.max(lo,Math.min(current,hi));
+      // A 4px deadband must never conceal current-page safety violation.
+      const force=current<range.lo-0.01 || current>range.hi+0.01;
+      return {target,force};
     }
     async apply(record, p, token, explicit = false, initial = false, navigation = false) {
       const valid = () => !this.closed && this.host.enabled() &&
@@ -538,13 +577,15 @@ var MarginFitRuntime = (() => {
         const x=fittedContent
           ? this.container.scrollLeft+(fittedContent.left+fittedContent.right)/2-root.left-this.container.clientWidth/2
           : left+(box[0]+box[2])*scale/2-this.container.clientWidth/2;
-        const targetX = Math.max(0,Math.min(x,
-          Math.max(0,this.container.scrollWidth-this.container.clientWidth)));
+        const maxScroll=Math.max(0,this.container.scrollWidth-this.container.clientWidth);
+        const originalX=Math.max(0,Math.min(x,maxScroll));
+        const b=this.bambooTarget(p,fitting,page,root,scale,maxScroll,originalX,navigation);
+        const targetX=b.target;
         // Adjacent page layouts often differ by only a few pixels. Do not
         // chase that precision: it produces visible jitter and forced layout.
         const deadband = explicit && !navigation ? 0.5 : 4; // auto page-turn keeps 4px jitter guard
         let horizontalWritten = false, verticalWritten = false;
-        if (Math.abs(targetX-this.container.scrollLeft) >= deadband) {
+        if (b.force || Math.abs(targetX-this.container.scrollLeft) >= deadband) {
           this.container.scrollLeft = targetX;
           horizontalWritten = true;
         }
@@ -777,6 +818,7 @@ var MarginFitRuntime = (() => {
       } };
     }
     enabled() { return this.Services.prefs.getBoolPref(PREF, true); }
+    bambooPad() { return 12; }
     mode() {
       const mode=this.Services.prefs.getStringPref(MODE, "width");
       return mode==="off" || mode==="height" ? mode : "width";
